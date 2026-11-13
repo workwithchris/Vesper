@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +38,7 @@ import com.example.ui.home.HomeScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.LocalLauncherIsDark
 import com.example.ui.theme.NeonSunsetTheme
+import com.example.util.LocalLauncherHapticsEnabled
 import com.example.viewmodel.LauncherViewModel
 
 class MainActivity : ComponentActivity() {
@@ -140,12 +142,15 @@ private fun LauncherAppRoot(
     val isDark = LocalLauncherIsDark.current
     LaunchedEffect(isDark) { onSystemBarThemeChange(isDark) }
 
-    Box(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .background(MaterialTheme.colorScheme.background)
+    CompositionLocalProvider(
+      LocalLauncherHapticsEnabled provides uiState.settings.hapticFeedbackEnabled
     ) {
+      Box(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+      ) {
       when (destination) {
         LauncherDestination.HOME, LauncherDestination.ALL_APPS -> {
           HomeScreen(
@@ -308,6 +313,7 @@ private fun LauncherAppRoot(
           },
         )
       }
+    }
     }
   }
 }

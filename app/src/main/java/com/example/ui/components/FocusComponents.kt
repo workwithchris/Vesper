@@ -59,6 +59,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.model.AppInfo
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.delay
 
 @Composable
@@ -67,6 +69,7 @@ fun MindfulLaunchDialog(
   onStayPresent: () -> Unit,
   onContinueToApp: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var remainingSeconds by remember(app.componentKey) { mutableIntStateOf(3) }
 
   LaunchedEffect(app.componentKey) {
@@ -147,7 +150,10 @@ fun MindfulLaunchDialog(
         Spacer(modifier = Modifier.height(20.dp))
 
         Button(
-          onClick = onStayPresent,
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+            onStayPresent()
+          },
           colors = ButtonDefaults.buttonColors(containerColor = accentColor),
           shape = RoundedCornerShape(8.dp),
           modifier = Modifier.fillMaxWidth().testTag("mindful_stay_button"),
@@ -164,7 +170,10 @@ fun MindfulLaunchDialog(
         Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedButton(
-          onClick = onContinueToApp,
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+            onContinueToApp()
+          },
           enabled = remainingSeconds <= 0,
           shape = RoundedCornerShape(8.dp),
           modifier = Modifier.fillMaxWidth().testTag("mindful_continue_button"),
@@ -188,6 +197,7 @@ fun RenameAppDialog(
   onSave: (String?) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var nameInput by remember(app.componentKey) { mutableStateOf(app.label) }
 
   Dialog(onDismissRequest = onDismiss) {
@@ -229,7 +239,12 @@ fun RenameAppDialog(
           horizontalArrangement = Arrangement.End,
         ) {
           if (app.label != app.originalLabel) {
-            TextButton(onClick = { onSave(null) }) {
+            TextButton(
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                onSave(null)
+              }
+            ) {
               Text("Reset")
             }
           }
@@ -238,6 +253,7 @@ fun RenameAppDialog(
           }
           TextButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               val trimmed = nameInput.trim()
               onSave(if (trimmed.isEmpty() || trimmed == app.originalLabel) null else trimmed)
             },
@@ -257,6 +273,7 @@ fun HiddenAppsDialog(
   onUnhide: (AppInfo) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Dialog(onDismissRequest = onDismiss) {
     Surface(
       shape = RoundedCornerShape(12.dp),
@@ -301,7 +318,12 @@ fun HiddenAppsDialog(
                   overflow = TextOverflow.Ellipsis,
                   modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { onUnhide(app) }) {
+                TextButton(
+                  onClick = {
+                    launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
+                    onUnhide(app)
+                  }
+                ) {
                   Icon(
                     imageVector = Icons.Outlined.Visibility,
                     contentDescription = null,
@@ -332,6 +354,7 @@ fun MindfulAppsPickerDialog(
   title: String = "Mindful pause apps",
   subtitle: String = "Select apps that show a brief breathing pause before opening.",
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var filterQuery by remember { mutableStateOf("") }
   var selectedKeys by remember(pausedKeys) { mutableStateOf(pausedKeys) }
   val filtered =
@@ -397,6 +420,7 @@ fun MindfulAppsPickerDialog(
             val checked = app.componentKey in selectedKeys
             Surface(
               onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                 selectedKeys =
                   if (checked) selectedKeys - app.componentKey
                   else selectedKeys + app.componentKey
@@ -440,6 +464,7 @@ fun MindfulAppsPickerDialog(
           Spacer(modifier = Modifier.width(8.dp))
           TextButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               onSave(allApps.filter { it.componentKey in selectedKeys })
             }
           ) {

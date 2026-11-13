@@ -426,4 +426,64 @@ class LauncherModelsTest {
     assertTrue(step.tiltY > 0.2f && step.tiltY <= 1f)
     assertTrue(step.baseX > 0f)
   }
+
+  @Test
+  fun `LauncherHapticsResolver resolves nuanced constants on API 30+ and clean fallbacks on API 26`() {
+    assertEquals(
+      android.view.HapticFeedbackConstants.GESTURE_START,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.DRAWER_OPEN_SWIPE,
+        sdkInt = android.os.Build.VERSION_CODES.R,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.CONTEXT_CLICK,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.DRAWER_OPEN_SWIPE,
+        sdkInt = android.os.Build.VERSION_CODES.O,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.GESTURE_END,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.DRAWER_CLOSE_SWIPE,
+        sdkInt = android.os.Build.VERSION_CODES.R,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.CLOCK_TICK,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.DRAWER_CLOSE_SWIPE,
+        sdkInt = android.os.Build.VERSION_CODES.O,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.CONFIRM,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.CONFIRM_ACTION,
+        sdkInt = android.os.Build.VERSION_CODES.R,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.REJECT,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.ERROR_FEEDBACK,
+        sdkInt = android.os.Build.VERSION_CODES.R,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.LONG_PRESS,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.LONG_PRESS,
+        sdkInt = android.os.Build.VERSION_CODES.O,
+      ),
+    )
+    assertEquals(
+      android.view.HapticFeedbackConstants.CLOCK_TICK,
+      com.example.util.LauncherHapticsResolver.resolveAndroidHapticConstant(
+        com.example.util.LauncherHapticEvent.SCRUBBER_TICK,
+        sdkInt = android.os.Build.VERSION_CODES.R,
+      ),
+    )
+  }
 }

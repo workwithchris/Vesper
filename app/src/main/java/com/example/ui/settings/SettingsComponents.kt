@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.notifications.NotificationBadgeStore
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 
 @Composable
 fun LauncherHealthStatusCard(
@@ -94,12 +96,16 @@ private fun StatusCheckRow(
   actionLabel: String,
   onClick: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Row(
     modifier =
       Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
-        .clickable(onClick = onClick)
+        .clickable {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+          onClick()
+        }
         .padding(vertical = 4.dp, horizontal = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -138,6 +144,7 @@ fun <T> RadioOptionDialog(
   onSelect: (T) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Dialog(onDismissRequest = onDismiss) {
     Surface(
       shape = RoundedCornerShape(12.dp),
@@ -158,13 +165,19 @@ fun <T> RadioOptionDialog(
               Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .clickable { onSelect(option) }
+                .clickable {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                  onSelect(option)
+                }
                 .padding(vertical = 8.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
             RadioButton(
               selected = selected == option,
-              onClick = { onSelect(option) },
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                onSelect(option)
+              },
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(text = labelFor(option), style = MaterialTheme.typography.bodyLarge)
@@ -207,12 +220,16 @@ fun SettingsValueRow(
   onClick: () -> Unit,
   testTag: String,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Row(
     modifier =
       Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(12.dp))
-        .clickable(onClick = onClick)
+        .clickable {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+          onClick()
+        }
         .padding(horizontal = 4.dp, vertical = 14.dp)
         .testTag(testTag),
     verticalAlignment = Alignment.CenterVertically,
@@ -255,13 +272,22 @@ fun SettingsToggleRow(
   onCheckedChange: (Boolean) -> Unit,
   accentColor: Color,
   testTag: String,
+  forceWhenToggledOn: Boolean = false,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Row(
     modifier =
       Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(12.dp))
-        .clickable { onCheckedChange(!checked) }
+        .clickable {
+          val nextValue = !checked
+          launcherHaptics.trigger(
+            LauncherHapticEvent.TOGGLE_SWITCH,
+            forceWhenDisabled = forceWhenToggledOn && nextValue,
+          )
+          onCheckedChange(nextValue)
+        }
         .padding(horizontal = 4.dp, vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -280,7 +306,13 @@ fun SettingsToggleRow(
     )
     Switch(
       checked = checked,
-      onCheckedChange = onCheckedChange,
+      onCheckedChange = { nextValue ->
+        launcherHaptics.trigger(
+          LauncherHapticEvent.TOGGLE_SWITCH,
+          forceWhenDisabled = forceWhenToggledOn && nextValue,
+        )
+        onCheckedChange(nextValue)
+      },
       colors =
         SwitchDefaults.colors(
           checkedThumbColor = Color.White,

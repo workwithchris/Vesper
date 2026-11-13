@@ -66,11 +66,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +80,8 @@ import com.example.model.AdaptiveIconShape
 import com.example.model.AppInfo
 import com.example.ui.theme.LocalAdaptiveIconShape
 import com.example.ui.theme.LocalLauncherIsDark
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
 
 val SquircleShape: Shape =
@@ -175,7 +175,7 @@ fun AppListRow(
   val interactionSource = remember { MutableInteractionSource() }
   val isPressed by interactionSource.collectIsPressedAsState()
   val coroutineScope = rememberCoroutineScope()
-  val haptics = LocalHapticFeedback.current
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
 
   val pressScale = remember { Animatable(1f) }
   val tapBounceScale = remember { Animatable(1f) }
@@ -215,9 +215,7 @@ fun AppListRow(
               interactionSource = interactionSource,
               indication = LocalIndication.current,
               onClick = {
-                if (hapticEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
                 coroutineScope.launch {
                   tapBounceScale.snapTo(0.91f)
                   tapBounceScale.animateTo(
@@ -232,9 +230,7 @@ fun AppListRow(
                 onTap()
               },
               onLongClick = {
-                if (hapticEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.LONG_PRESS)
                 menuExpanded = true
               },
             )
@@ -353,7 +349,7 @@ fun AlphabetScrubberRail(
   val letters = remember { ('A'..'Z').toList() }
   var railHeightPx by remember { mutableIntStateOf(1) }
   var lastReported by remember { mutableStateOf<Char?>(null) }
-  val haptics = LocalHapticFeedback.current
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
   val accentColor = MaterialTheme.colorScheme.primary
 
   fun resolveLetter(offsetY: Float): Char {
@@ -378,23 +374,19 @@ fun AlphabetScrubberRail(
         Modifier
           .fillMaxSize()
           .onSizeChanged { railHeightPx = it.height }
-          .pointerInput(hapticEnabled) {
+          .pointerInput(launcherHaptics) {
             detectTapGestures { offset ->
               val letter = resolveLetter(offset.y)
-              if (hapticEnabled) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              }
+              launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
               onLetterSelected(letter)
             }
           }
-          .pointerInput(hapticEnabled) {
+          .pointerInput(launcherHaptics) {
             detectVerticalDragGestures(
               onDragStart = { offset ->
                 val letter = resolveLetter(offset.y)
                 lastReported = letter
-                if (hapticEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
                 onLetterSelected(letter)
               },
               onVerticalDrag = { change, _ ->
@@ -402,9 +394,7 @@ fun AlphabetScrubberRail(
                 val letter = resolveLetter(change.position.y)
                 if (letter != lastReported) {
                   lastReported = letter
-                  if (hapticEnabled) {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                  }
+                  launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
                   onLetterSelected(letter)
                 }
               },
@@ -456,6 +446,7 @@ fun FavoriteAppsPickerDialog(
   onSave: (List<AppInfo>) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var filterQuery by remember { mutableStateOf("") }
   var orderedSelectedKeys by remember(currentFavorites) {
     mutableStateOf(currentFavorites.map { it.componentKey })
@@ -561,6 +552,7 @@ fun FavoriteAppsPickerDialog(
                   IconButton(
                     onClick = {
                       if (index > 0) {
+                        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                         val mutable = orderedSelectedKeys.toMutableList()
                         val item = mutable.removeAt(index)
                         mutable.add(index - 1, item)
@@ -577,6 +569,7 @@ fun FavoriteAppsPickerDialog(
                   IconButton(
                     onClick = {
                       if (index in 0 until orderedSelectedKeys.lastIndex) {
+                        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                         val mutable = orderedSelectedKeys.toMutableList()
                         val item = mutable.removeAt(index)
                         mutable.add(index + 1, item)
@@ -592,6 +585,7 @@ fun FavoriteAppsPickerDialog(
                   }
                   IconButton(
                     onClick = {
+                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                       orderedSelectedKeys = orderedSelectedKeys - app.componentKey
                     },
                   ) {
@@ -621,6 +615,7 @@ fun FavoriteAppsPickerDialog(
             ) { app ->
               Surface(
                 onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                   orderedSelectedKeys = orderedSelectedKeys + app.componentKey
                 },
                 shape = RoundedCornerShape(8.dp),
@@ -664,6 +659,7 @@ fun FavoriteAppsPickerDialog(
           Spacer(modifier = Modifier.width(8.dp))
           TextButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               onSave(selectedOrderedApps)
             }
           ) {

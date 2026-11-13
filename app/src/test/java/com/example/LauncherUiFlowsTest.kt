@@ -1,8 +1,12 @@
 package com.example
 
+import android.view.HapticFeedbackConstants
+import android.view.View
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -15,7 +19,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
 import com.example.model.AccentOption
 import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
@@ -35,6 +41,7 @@ import com.example.ui.home.HomeScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.NeonSunsetTheme
 import com.example.util.FocusAndSearchUtils
+import com.example.util.LocalLauncherHapticsEnabled
 import com.example.util.MathEvaluator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,6 +49,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -422,5 +430,120 @@ class LauncherUiFlowsTest {
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("coastal_gradient_overlay").assertIsDisplayed()
     composeTestRule.onNodeWithTag("sunset_parallax_illustration").assertIsDisplayed()
+  }
+
+  @Test
+  fun `launcher triggers distinct haptic constants for long press, drawer swipe, and respects disable toggle`() {
+    var hapticsEnabled by mutableStateOf(true)
+    var drawerOpened = false
+    var drawerClosed = false
+    var drawerOpenState by mutableStateOf(false)
+    var capturedView: View? = null
+
+    composeTestRule.setContent {
+      capturedView = LocalView.current
+      val uiState =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(sampleCalendar, sampleNotes),
+          allVisibleApps = listOf(sampleCalendar, sampleNotes),
+          favoriteApps = listOf(sampleCalendar),
+          drawerSections =
+            listOf(
+              com.example.model.AlphabetSection('C', listOf(sampleCalendar)),
+              com.example.model.AlphabetSection('N', listOf(sampleNotes)),
+            ),
+          settings =
+            LauncherSettings(
+              hasCompletedOnboarding = true,
+              reducedMotionEnabled = true,
+              hapticFeedbackEnabled = hapticsEnabled,
+            ),
+        )
+      NeonSunsetTheme {
+        CompositionLocalProvider(LocalLauncherHapticsEnabled provides hapticsEnabled) {
+          HomeScreen(
+            uiState = uiState,
+            onOpenDrawer = { _, _ ->
+              drawerOpened = true
+              drawerOpenState = true
+            },
+            onOpenSettings = {},
+            onClockClick = {},
+            onRefreshWeather = {},
+            onOpenCalendar = {},
+            onExpandNotificationShade = {},
+            onTriggerGestureAction = {},
+            onStartFocusTimer = {},
+            onStopFocusTimer = {},
+            onToggleFocusMode = {},
+            onLaunchApp = {},
+            onOpenAppInfo = {},
+            onRemoveFromFavorites = {},
+            onRenameApp = { _, _ -> },
+            onToggleMindfulPause = {},
+            onSaveFolder = { _, _, _ -> },
+            onDeleteFolder = {},
+          )
+          AppDrawer(
+            isOpen = drawerOpenState,
+            focusSearchOnOpen = false,
+            initialLetter = null,
+            uiState = uiState,
+            onClose = {
+              drawerClosed = true
+              drawerOpenState = false
+            },
+            onSearchQueryChange = {},
+            onLaunchApp = {},
+            onLaunchShortcut = {},
+            onDialNumber = {},
+            onOpenUrl = {},
+            onWebSearch = {},
+            onOpenAppInfo = {},
+            onToggleFavorite = {},
+            onRenameApp = { _, _ -> },
+            onHideApp = {},
+            onToggleMindfulPause = {},
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    val shadowView = Shadows.shadowOf(capturedView!!)
+
+    // 1. Long-press favorite app triggers LONG_PRESS haptic
+    composeTestRule.onNodeWithTag("app_row_com.cal").performTouchInput { longClick() }
+    composeTestRule.waitForIdle()
+    assertEquals(HapticFeedbackConstants.LONG_PRESS, shadowView.lastHapticFeedbackPerformed())
+
+    // 2. Swipe up on hero region opens app drawer with GESTURE_START haptic
+    composeTestRule.onNodeWithTag("status_clock").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+    assertTrue(drawerOpened)
+    assertEquals(HapticFeedbackConstants.GESTURE_START, shadowView.lastHapticFeedbackPerformed())
+
+    // 3. Tap close drawer button triggers GESTURE_END haptic
+    composeTestRule.onNodeWithTag("close_drawer_button").performClick()
+    composeTestRule.waitForIdle()
+    assertTrue(drawerClosed)
+    assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
+
+    // 4. Tapping search pill triggers subtle CLOCK_TICK haptic when enabled
+    composeTestRule.onNodeWithTag("home_search_pill").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(HapticFeedbackConstants.CLOCK_TICK, shadowView.lastHapticFeedbackPerformed())
+
+    // Close drawer again (GESTURE_END), then disable haptics and verify further taps emit nothing new
+    composeTestRule.onNodeWithTag("close_drawer_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
+
+    hapticsEnabled = false
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_search_pill").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
   }
 }

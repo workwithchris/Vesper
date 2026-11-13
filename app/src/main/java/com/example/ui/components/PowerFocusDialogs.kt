@@ -73,6 +73,8 @@ import com.example.model.WeatherLocation
 import com.example.ui.theme.GeistMonoNumericStyle
 import com.example.ui.theme.LocalLauncherIsDark
 import com.example.util.FocusAndSearchUtils
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
 
 @Composable
@@ -83,6 +85,7 @@ fun FolderEditorDialog(
   onDelete: (() -> Unit)?,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var folderName by remember(existingFolder) { mutableStateOf(existingFolder?.name ?: "") }
   var filterQuery by remember { mutableStateOf("") }
   var selectedKeys by remember(existingFolder) {
@@ -156,6 +159,7 @@ fun FolderEditorDialog(
             val checked = app.componentKey in selectedKeys
             Surface(
               onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                 selectedKeys =
                   if (checked) selectedKeys - app.componentKey
                   else selectedKeys + app.componentKey
@@ -193,7 +197,12 @@ fun FolderEditorDialog(
         Spacer(modifier = Modifier.height(10.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
           if (onDelete != null) {
-            TextButton(onClick = onDelete) {
+            TextButton(
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                onDelete()
+              }
+            ) {
               Text("Delete", color = MaterialTheme.colorScheme.error)
             }
           } else {
@@ -205,6 +214,7 @@ fun FolderEditorDialog(
             TextButton(
               enabled = folderName.trim().isNotEmpty() && selectedKeys.isNotEmpty(),
               onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
                 onSave(folderName.trim(), allApps.filter { it.componentKey in selectedKeys })
               },
               modifier = Modifier.testTag("folder_save_button"),
@@ -225,6 +235,7 @@ fun WeatherCityPickerDialog(
   onSelectLocation: (WeatherLocation) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var query by remember { mutableStateOf("") }
   var isSearching by remember { mutableStateOf(false) }
   var searchResults by remember { mutableStateOf<List<WeatherLocation>>(emptyList()) }
@@ -269,6 +280,7 @@ fun WeatherCityPickerDialog(
           Spacer(modifier = Modifier.width(8.dp))
           Button(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
               scope.launch {
                 isSearching = true
                 searchResults = onSearchCities(query)
@@ -309,7 +321,10 @@ fun WeatherCityPickerDialog(
           ) { city ->
             val selected = city.name == currentLocation.name && city.region == currentLocation.region
             Surface(
-              onClick = { onSelectLocation(city) },
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+                onSelectLocation(city)
+              },
               shape = RoundedCornerShape(8.dp),
               color =
                 if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
@@ -367,6 +382,7 @@ fun FocusScheduleDialog(
   onSave: (enabled: Boolean, startMinutes: Int, endMinutes: Int) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var scheduleEnabled by remember(enabled) { mutableStateOf(enabled) }
   var startMin by remember(startMinutes) { mutableIntStateOf(startMinutes) }
   var endMin by remember(endMinutes) { mutableIntStateOf(endMinutes) }
@@ -396,7 +412,13 @@ fun FocusScheduleDialog(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
           )
-          Switch(checked = scheduleEnabled, onCheckedChange = { scheduleEnabled = it })
+          Switch(
+            checked = scheduleEnabled,
+            onCheckedChange = {
+              launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
+              scheduleEnabled = it
+            },
+          )
         }
         Spacer(modifier = Modifier.height(12.dp))
         TimeAdjustRow(
@@ -416,7 +438,12 @@ fun FocusScheduleDialog(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
           TextButton(onClick = onDismiss) { Text("Cancel") }
           Spacer(modifier = Modifier.width(8.dp))
-          TextButton(onClick = { onSave(scheduleEnabled, startMin, endMin) }) {
+          TextButton(
+            onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+              onSave(scheduleEnabled, startMin, endMin)
+            }
+          ) {
             Text("Save", color = MaterialTheme.colorScheme.primary)
           }
         }
@@ -432,6 +459,7 @@ private fun TimeAdjustRow(
   enabled: Boolean,
   onAdjust: (Int) -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   Row(
     modifier = Modifier.fillMaxWidth(),
     verticalAlignment = Alignment.CenterVertically,
@@ -442,7 +470,13 @@ private fun TimeAdjustRow(
       color = MaterialTheme.colorScheme.onSurfaceVariant,
       modifier = Modifier.weight(1f),
     )
-    IconButton(onClick = { onAdjust(-30) }, enabled = enabled) {
+    IconButton(
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
+        onAdjust(-30)
+      },
+      enabled = enabled,
+    ) {
       Icon(Icons.Outlined.Remove, contentDescription = "Decrease $label time")
     }
     Text(
@@ -450,7 +484,13 @@ private fun TimeAdjustRow(
       style = GeistMonoNumericStyle.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
       modifier = Modifier.padding(horizontal = 8.dp),
     )
-    IconButton(onClick = { onAdjust(30) }, enabled = enabled) {
+    IconButton(
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
+        onAdjust(30)
+      },
+      enabled = enabled,
+    ) {
       Icon(Icons.Outlined.Add, contentDescription = "Increase $label time")
     }
   }
@@ -574,6 +614,7 @@ fun BackupRestoreDialog(
 ) {
   val context = LocalContext.current
   val clipboard = LocalClipboardManager.current
+  val launcherHaptics = rememberLauncherHaptics()
   val scope = rememberCoroutineScope()
   var jsonInput by remember(exportedJson) { mutableStateOf(exportedJson) }
   var copiedFeedback by remember { mutableStateOf(false) }
@@ -605,6 +646,7 @@ fun BackupRestoreDialog(
         ) {
           OutlinedButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               clipboard.setText(AnnotatedString(exportedJson))
               copiedFeedback = true
             },
@@ -617,6 +659,7 @@ fun BackupRestoreDialog(
           }
           OutlinedButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
               val shareIntent =
                 Intent(Intent.ACTION_SEND).apply {
                   type = "text/plain"
@@ -684,8 +727,10 @@ fun BackupRestoreDialog(
                 scope.launch {
                   val restored = onImportJson(jsonInput)
                   if (restored) {
+                    launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
                     onRestoreSuccess()
                   } else {
+                    launcherHaptics.trigger(LauncherHapticEvent.ERROR_FEEDBACK)
                     errorMessage = "Invalid backup JSON. Please check formatting."
                   }
                 }
@@ -715,6 +760,7 @@ fun OnboardingWelcomeDialog(
   onFinish: (selectedFavorites: List<AppInfo>) -> Unit,
   onSkip: () -> Unit,
 ) {
+  val launcherHaptics = rememberLauncherHaptics()
   var step by remember { mutableIntStateOf(0) }
   var selectedKeys by remember(initialFavorites) {
     mutableStateOf(initialFavorites.map { it.componentKey }.toSet())
@@ -767,7 +813,10 @@ fun OnboardingWelcomeDialog(
                         else MaterialTheme.colorScheme.outlineVariant,
                       shape = CircleShape,
                     )
-                    .clickable { onSelectAccent(option) }
+                    .clickable {
+                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                      onSelectAccent(option)
+                    }
                     .testTag("onboarding_accent_${option.name.lowercase()}"),
               )
             }
@@ -786,7 +835,10 @@ fun OnboardingWelcomeDialog(
             AdaptiveIconShape.entries.forEach { shape ->
               val selected = shape == initialShape
               OutlinedButton(
-                onClick = { onSelectShape(shape) },
+                onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                  onSelectShape(shape)
+                },
                 border =
                   BorderStroke(
                     1.dp,
@@ -814,6 +866,7 @@ fun OnboardingWelcomeDialog(
               val checked = app.componentKey in selectedKeys
               Surface(
                 onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                   selectedKeys =
                     if (checked) selectedKeys - app.componentKey
                     else selectedKeys + app.componentKey
@@ -861,7 +914,10 @@ fun OnboardingWelcomeDialog(
           }
           if (step == 0) {
             Button(
-              onClick = { step = 1 },
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                step = 1
+              },
               colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
               shape = RoundedCornerShape(8.dp),
               modifier = Modifier.testTag("onboarding_next_button"),
@@ -870,7 +926,10 @@ fun OnboardingWelcomeDialog(
             }
           } else {
             Button(
-              onClick = { onFinish(allApps.filter { it.componentKey in selectedKeys }) },
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+                onFinish(allApps.filter { it.componentKey in selectedKeys })
+              },
               colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
               shape = RoundedCornerShape(8.dp),
               modifier = Modifier.testTag("onboarding_finish_button"),

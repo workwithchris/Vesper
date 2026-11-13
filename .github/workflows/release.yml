@@ -1,0 +1,198 @@
+name: Release APK & AAB
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Semantic version name (e.g. 1.0.1). Leave blank to use version.properties.'
+        required: false
+        default: ''
+      version_code:
+        description: 'Optional integer versionCode override'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark GitHub Release as pre-release'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Sign & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Resolve semantic versionName & monotonic versionCode
+        id: version
+        shell: bash
+        run: |
+          source version.properties
+          DEFAULT_VER="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RAW_VER="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version_name }}" ]]; then
+            RAW_VER="${{ inputs.version_name }}"
+            RAW_VER="${RAW_VER#v}"
+          else
+            RAW_VER="${DEFAULT_VER}"
+          fi
+
+          CORE_VER="${RAW_VER%%-*}"
+          IFS='.' read -r MAJ MIN PAT <<< "${CORE_VER}"
+          MAJ=${MAJ:-1}
+          MIN=${MIN:-0}
+          PAT=${PAT:-0}
+
+          if [[ -n "${{ inputs.version_code }}" ]]; then
+            CALC_CODE="${{ inputs.version_code }}"
+          else
+            COMMIT_COUNT=$(git rev-list --count HEAD || echo 1)
+            CALC_CODE=$(( MAJ * 1000000 + MIN * 10000 + PAT * 100 + (COMMIT_COUNT % 100) ))
+          fi
+
+          IS_PRERELEASE="${{ inputs.prerelease }}"
+          if [[ "${RAW_VER}" == *-* ]]; then
+            IS_PRERELEASE="true"
+          fi
+
+          TAG_NAME="v${RAW_VER}"
+          echo "version_name=${RAW_VER}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${CALC_CODE}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: ${RAW_VER} (versionCode=${CALC_CODE}, tag=${TAG_NAME})"
+
+      - name: Prepare signing keystores
+        id: signing
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -v -keystore debug.keystore \
+                -storepass android -alias androiddebugkey -keypass android \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" ]]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            echo "has_release_keystore=true" >> "$GITHUB_OUTPUT"
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=${STORE_PASSWORD}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${KEY_PASSWORD}" >> "$GITHUB_ENV"
+          else
+            echo "has_release_keystore=false" >> "$GITHUB_OUTPUT"
+            # Generate an ephemeral CI keystore so assembleRelease/bundleRelease can complete cleanly;
+            # production releases should configure RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, and RELEASE_KEY_PASSWORD.
+            EPHEMERAL_PASS="vesper-ephemeral-ci"
+            keytool -genkeypair -v -keystore my-upload-key.jks \
+              -storepass "$EPHEMERAL_PASS" -alias upload -keypass "$EPHEMERAL_PASS" \
+              -keyalg RSA -keysize 2048 -validity 365 \
+              -dname "CN=Vesper CI,O=Vesper,C=US"
+            echo "KEYSTORE_PATH=${GITHUB_WORKSPACE}/my-upload-key.jks" >> "$GITHUB_ENV"
+            echo "STORE_PASSWORD=${EPHEMERAL_PASS}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=${EPHEMERAL_PASS}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run full unit & UI test suite
+        run: |
+          gradle :app:testDebugUnitTest \
+            -PappVersionName="${{ steps.version.outputs.version_name }}" \
+            -PappVersionCode="${{ steps.version.outputs.version_code }}"
+
+      - name: Build Release APK & App Bundle (AAB)
+        run: |
+          gradle :app:assembleRelease :app:bundleRelease \
+            -PappVersionName="${{ steps.version.outputs.version_name }}" \
+            -PappVersionCode="${{ steps.version.outputs.version_code }}"
+
+      - name: Package versioned release artifacts & SHA-256 checksums
+        id: package
+        shell: bash
+        run: |
+          mkdir -p dist
+          VER="${{ steps.version.outputs.version_name }}"
+          CODE="${{ steps.version.outputs.version_code }}"
+
+          if [[ "${{ steps.signing.outputs.has_release_keystore }}" == "true" ]]; then
+            SIGN_SUFFIX=""
+          else
+            SIGN_SUFFIX="-ci-signed"
+          fi
+
+          APK_SRC=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          AAB_SRC=$(find app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+
+          APK_OUT="dist/Vesper-v${VER}-${CODE}${SIGN_SUFFIX}.apk"
+          AAB_OUT="dist/Vesper-v${VER}-${CODE}${SIGN_SUFFIX}.aab"
+
+          cp "$APK_SRC" "$APK_OUT"
+          cp "$AAB_SRC" "$AAB_OUT"
+
+          (cd dist && sha256sum *.apk *.aab > "Vesper-v${VER}-checksums.txt")
+          ls -lh dist
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vesper-v${{ steps.version.outputs.version_name }}-release
+          path: dist/
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: Vesper ${{ steps.version.outputs.tag_name }}
+          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          body: |
+            ## Vesper ${{ steps.version.outputs.tag_name }}
+            - **Version Name:** `${{ steps.version.outputs.version_name }}`
+            - **Version Code:** `${{ steps.version.outputs.version_code }}`
+            - **Signing:** `${{ steps.signing.outputs.has_release_keystore == 'true' && 'Production upload keystore' || 'Ephemeral CI keystore (configure RELEASE_KEYSTORE_BASE64 for Play uploads)' }}`
+
+            Verify integrity with `sha256sum -c Vesper-v${{ steps.version.outputs.version_name }}-checksums.txt`.
+          files: |
+            dist/*.apk
+            dist/*.aab
+            dist/*checksums.txt
+
+      - name: Clean up ephemeral keystore
+        if: always()
+        shell: bash
+        run: rm -f my-upload-key.jks

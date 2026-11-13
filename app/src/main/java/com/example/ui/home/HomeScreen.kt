@@ -63,13 +63,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,6 +97,8 @@ import com.example.ui.theme.WeatherHeatGold
 import com.example.ui.theme.WeatherRainCyan
 import com.example.ui.theme.WeatherStormViolet
 import com.example.ui.theme.WeatherSunGold
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -131,7 +131,6 @@ fun HomeScreen(
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
-  val haptics = LocalHapticFeedback.current
   val lifecycleOwner = LocalLifecycleOwner.current
   var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
   var renameTarget by remember { mutableStateOf<AppInfo?>(null) }
@@ -140,6 +139,7 @@ fun HomeScreen(
   var showCityPicker by remember { mutableStateOf(false) }
   var systemLowPowerMode by remember { mutableStateOf(isSystemLowPowerOrReducedMotion(context)) }
   val hapticsEnabled = uiState.settings.hapticFeedbackEnabled
+  val launcherHaptics = rememberLauncherHaptics(hapticsEnabled)
 
   DisposableEffect(lifecycleOwner, context) {
     val observer = LifecycleEventObserver { _, event ->
@@ -177,7 +177,7 @@ fun HomeScreen(
 
   val listState = rememberLazyListState()
   val drawerSwipeConnection =
-    remember(listState, onOpenDrawer, onExpandNotificationShade, hapticsEnabled) {
+    remember(listState, onOpenDrawer, onExpandNotificationShade, launcherHaptics) {
       object : NestedScrollConnection {
         private var upwardOverscroll = 0f
         private var downwardOverscroll = 0f
@@ -193,9 +193,7 @@ fun HomeScreen(
               upwardOverscroll += -available.y
               if (upwardOverscroll > 64f) {
                 upwardOverscroll = 0f
-                if (hapticsEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                 onOpenDrawer(false, null)
               }
             } else if (available.y > 0f && !listState.canScrollBackward) {
@@ -203,9 +201,7 @@ fun HomeScreen(
               downwardOverscroll += available.y
               if (downwardOverscroll > 72f) {
                 downwardOverscroll = 0f
-                if (hapticsEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                 onExpandNotificationShade()
               }
             } else {
@@ -223,11 +219,11 @@ fun HomeScreen(
       modifier
         .fillMaxSize()
         .nestedScroll(drawerSwipeConnection)
-        .pointerInput(uiState.settings.doubleTapAction, hapticsEnabled, onTriggerGestureAction) {
+        .pointerInput(uiState.settings.doubleTapAction, launcherHaptics, onTriggerGestureAction) {
           detectTapGestures(
             onDoubleTap = {
-              if (uiState.settings.doubleTapAction != HomeGestureAction.NONE && hapticsEnabled) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+              if (uiState.settings.doubleTapAction != HomeGestureAction.NONE) {
+                launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
               }
               onTriggerGestureAction(uiState.settings.doubleTapAction)
             },
@@ -236,7 +232,7 @@ fun HomeScreen(
         .pointerInput(
           uiState.settings.swipeLeftAction,
           uiState.settings.swipeRightAction,
-          hapticsEnabled,
+          launcherHaptics,
           onTriggerGestureAction,
         ) {
           var dragX = 0f
@@ -251,14 +247,14 @@ fun HomeScreen(
               dragX += delta
               if (dragX < -96f) {
                 triggered = true
-                if (uiState.settings.swipeLeftAction != HomeGestureAction.NONE && hapticsEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                if (uiState.settings.swipeLeftAction != HomeGestureAction.NONE) {
+                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                 }
                 onTriggerGestureAction(uiState.settings.swipeLeftAction)
               } else if (dragX > 96f) {
                 triggered = true
-                if (uiState.settings.swipeRightAction != HomeGestureAction.NONE && hapticsEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                if (uiState.settings.swipeRightAction != HomeGestureAction.NONE) {
+                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                 }
                 onTriggerGestureAction(uiState.settings.swipeRightAction)
               }
@@ -314,7 +310,7 @@ fun HomeScreen(
             modifier =
               Modifier
                 .fillMaxWidth()
-                .pointerInput(onExpandNotificationShade, onOpenDrawer, hapticsEnabled) {
+                .pointerInput(onExpandNotificationShade, onOpenDrawer, launcherHaptics) {
                   var dragY = 0f
                   detectVerticalDragGestures(
                     onDragStart = { dragY = 0f },
@@ -322,15 +318,11 @@ fun HomeScreen(
                       dragY += delta
                       if (dragY > 72f) {
                         dragY = 0f
-                        if (hapticsEnabled) {
-                          haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
+                        launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                         onExpandNotificationShade()
                       } else if (dragY < -72f) {
                         dragY = 0f
-                        if (hapticsEnabled) {
-                          haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
+                        launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                         onOpenDrawer(false, null)
                       }
                     },
@@ -345,7 +337,10 @@ fun HomeScreen(
               formattedDate = formattedDate,
               locationLabel = uiState.weather.locationName,
               reducedMotion = effectiveReducedMotion,
-              onClick = onClockClick,
+              onClick = {
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                onClockClick()
+              },
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -369,15 +364,11 @@ fun HomeScreen(
                   .clip(RoundedCornerShape(8.dp))
                   .combinedClickable(
                     onClick = {
-                      if (hapticsEnabled) {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                      }
+                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                       onRefreshWeather()
                     },
                     onLongClick = {
-                      if (hapticsEnabled) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                      }
+                      launcherHaptics.trigger(LauncherHapticEvent.LONG_PRESS)
                       showCityPicker = true
                     },
                   )
@@ -430,7 +421,10 @@ fun HomeScreen(
                 modifier =
                   Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onOpenCalendar)
+                    .clickable {
+                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                      onOpenCalendar()
+                    }
                     .minimumInteractiveComponentSize()
                     .padding(vertical = 4.dp, horizontal = 2.dp)
                     .testTag("calendar_event_preview"),
@@ -555,6 +549,7 @@ fun HomeScreen(
                           Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           onOpenAppInfo(app)
                         },
@@ -565,6 +560,7 @@ fun HomeScreen(
                           Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           renameTarget = app
                         },
@@ -583,6 +579,7 @@ fun HomeScreen(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                           dismiss()
                           onToggleMindfulPause(app)
                         },
@@ -593,6 +590,7 @@ fun HomeScreen(
                           Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DangerRed)
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           onRemoveFromFavorites(app)
                         },
@@ -619,7 +617,7 @@ fun HomeScreen(
         modifier =
           Modifier
             .fillMaxWidth()
-            .pointerInput(onOpenDrawer, hapticsEnabled) {
+            .pointerInput(onOpenDrawer, launcherHaptics) {
               var dragY = 0f
               detectVerticalDragGestures(
                 onDragStart = { dragY = 0f },
@@ -627,9 +625,7 @@ fun HomeScreen(
                   dragY += delta
                   if (dragY < -54f) {
                     dragY = 0f
-                    if (hapticsEnabled) {
-                      haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
+                    launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
                     onOpenDrawer(false, null)
                   }
                 },
@@ -639,7 +635,10 @@ fun HomeScreen(
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Surface(
-          onClick = { onOpenDrawer(true, null) },
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+            onOpenDrawer(true, null)
+          },
           shape = RoundedCornerShape(10.dp),
           color = MaterialTheme.colorScheme.surface,
           border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -680,7 +679,10 @@ fun HomeScreen(
         Spacer(modifier = Modifier.width(12.dp))
 
         IconButton(
-          onClick = onOpenSettings,
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+            onOpenSettings()
+          },
           modifier = Modifier.minimumInteractiveComponentSize().testTag("settings_button"),
         ) {
           Icon(

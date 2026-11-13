@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -8,6 +9,26 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+val versionProps =
+  Properties().apply {
+    val file = rootProject.file("version.properties")
+    if (file.exists()) {
+      file.inputStream().use(::load)
+    }
+  }
+
+val resolvedVersionName: String =
+  (findProperty("appVersionName") as? String)?.takeIf { it.isNotBlank() }
+    ?: System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() }
+    ?: "${versionProps.getProperty("VERSION_MAJOR", "1")}.${versionProps.getProperty("VERSION_MINOR", "0")}.${versionProps.getProperty("VERSION_PATCH", "0")}"
+
+val resolvedVersionCode: Int =
+  ((findProperty("appVersionCode") as? String)?.toIntOrNull()
+    ?: System.getenv("APP_VERSION_CODE")?.toIntOrNull()
+    ?: versionProps.getProperty("VERSION_CODE", "1").toIntOrNull()
+    ?: 1)
+    .coerceAtLeast(1)
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -16,8 +37,8 @@ android {
     applicationId = "com.aistudio.neonsunset.vxkmqp"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = resolvedVersionCode
+    versionName = resolvedVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

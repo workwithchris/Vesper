@@ -89,6 +89,8 @@ import com.example.ui.components.AlphabetScrubberRail
 import com.example.ui.components.AppListRow
 import com.example.ui.components.MinimalDropdownItem
 import com.example.ui.components.RenameAppDialog
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
 
 @Composable
@@ -111,7 +113,10 @@ fun AppDrawer(
   onToggleMindfulPause: (AppInfo) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val launcherHaptics = rememberLauncherHaptics(uiState.settings.hapticFeedbackEnabled)
+
   BackHandler(enabled = isOpen) {
+    launcherHaptics.trigger(LauncherHapticEvent.DRAWER_CLOSE_SWIPE)
     if (uiState.searchQuery.isNotEmpty()) {
       onSearchQueryChange("")
     } else {
@@ -217,7 +222,7 @@ fun AppDrawer(
           modifier =
             Modifier
               .fillMaxWidth()
-              .pointerInput(onClose) {
+              .pointerInput(onClose, launcherHaptics) {
                 var dragY = 0f
                 detectVerticalDragGestures(
                   onDragStart = { dragY = 0f },
@@ -225,6 +230,7 @@ fun AppDrawer(
                     dragY += delta
                     if (dragY > 60f) {
                       dragY = 0f
+                      launcherHaptics.trigger(LauncherHapticEvent.DRAWER_CLOSE_SWIPE)
                       onClose()
                     }
                   },
@@ -240,7 +246,10 @@ fun AppDrawer(
             modifier = Modifier.weight(1f),
           )
           IconButton(
-            onClick = onClose,
+            onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.DRAWER_CLOSE_SWIPE)
+              onClose()
+            },
             modifier = Modifier.minimumInteractiveComponentSize().testTag("close_drawer_button"),
           ) {
             Icon(
@@ -263,14 +272,27 @@ fun AppDrawer(
                 val topApp = uiState.filteredDrawerApps.firstOrNull()
                 val quickAction = uiState.drawerQuickAction
                 when {
-                  topApp != null -> onLaunchApp(topApp)
-                  quickAction is DrawerQuickAction.DialPhone -> onDialNumber(quickAction.displayNumber)
-                  quickAction is DrawerQuickAction.OpenUrl -> onOpenUrl(quickAction.url)
+                  topApp != null -> {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    onLaunchApp(topApp)
+                  }
+                  quickAction is DrawerQuickAction.DialPhone -> {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    onDialNumber(quickAction.displayNumber)
+                  }
+                  quickAction is DrawerQuickAction.OpenUrl -> {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    onOpenUrl(quickAction.url)
+                  }
                   uiState.quickMathResult != null -> {
+                    launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
                     clipboard.setText(AnnotatedString(uiState.quickMathResult))
                     copiedMathAnswer = true
                   }
-                  uiState.searchQuery.isNotBlank() -> onWebSearch(uiState.searchQuery)
+                  uiState.searchQuery.isNotBlank() -> {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    onWebSearch(uiState.searchQuery)
+                  }
                 }
               }
             ),
@@ -289,7 +311,12 @@ fun AppDrawer(
           },
           trailingIcon = {
             if (uiState.searchQuery.isNotEmpty()) {
-              IconButton(onClick = { onSearchQueryChange("") }) {
+              IconButton(
+                onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                  onSearchQueryChange("")
+                }
+              ) {
                 Icon(
                   imageVector = Icons.Outlined.Close,
                   contentDescription = "Clear search",
@@ -323,6 +350,7 @@ fun AppDrawer(
           Spacer(modifier = Modifier.height(10.dp))
           Surface(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               clipboard.setText(AnnotatedString(mathAnswer))
               copiedMathAnswer = true
             },
@@ -377,6 +405,7 @@ fun AppDrawer(
             quickAction = quickAction,
             accentColor = accentColor,
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
               when (quickAction) {
                 is DrawerQuickAction.DialPhone -> onDialNumber(quickAction.displayNumber)
                 is DrawerQuickAction.OpenUrl -> onOpenUrl(quickAction.url)
@@ -394,7 +423,10 @@ fun AppDrawer(
           ) {
             uiState.matchedShortcuts.forEach { shortcut ->
               Surface(
-                onClick = { onLaunchShortcut(shortcut) },
+                onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                  onLaunchShortcut(shortcut)
+                },
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
@@ -444,7 +476,10 @@ fun AppDrawer(
                 WebSearchActionCard(
                   query = uiState.searchQuery.trim(),
                   accentColor = accentColor,
-                  onClick = { onWebSearch(uiState.searchQuery) },
+                  onClick = {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    onWebSearch(uiState.searchQuery)
+                  },
                 )
               }
             }
@@ -517,6 +552,7 @@ fun AppDrawer(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           onOpenAppInfo(app)
                         },
@@ -535,6 +571,7 @@ fun AppDrawer(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                           dismiss()
                           onToggleFavorite(app)
                         },
@@ -549,6 +586,7 @@ fun AppDrawer(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           renameTarget = app
                         },
@@ -567,6 +605,7 @@ fun AppDrawer(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                           dismiss()
                           onToggleMindfulPause(app)
                         },
@@ -581,6 +620,7 @@ fun AppDrawer(
                           )
                         },
                         onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                           dismiss()
                           onHideApp(app)
                         },
@@ -595,7 +635,10 @@ fun AppDrawer(
                     WebSearchActionCard(
                       query = uiState.searchQuery.trim(),
                       accentColor = accentColor,
-                      onClick = { onWebSearch(uiState.searchQuery) },
+                      onClick = {
+                        launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                        onWebSearch(uiState.searchQuery)
+                      },
                     )
                   }
                 }

@@ -43,8 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +58,8 @@ import com.example.ui.theme.DangerRed
 import com.example.ui.theme.GeistMonoNumericStyle
 import com.example.ui.theme.LocalAdaptiveIconShape
 import com.example.ui.theme.LocalLauncherIsDark
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.delay
 
 @Composable
@@ -75,7 +75,7 @@ fun HeroFocusTimerBar(
 ) {
   var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
   val isTimerRunning = focusTimerEndMillis > nowMillis
-  val haptics = LocalHapticFeedback.current
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
 
   // Zero-allocation idle: only ticks once per second while an active focus countdown is visible
   LaunchedEffect(focusTimerEndMillis) {
@@ -120,9 +120,7 @@ fun HeroFocusTimerBar(
           )
           IconButton(
             onClick = {
-              if (hapticEnabled) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              }
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
               onStopTimer()
             },
             modifier = Modifier.size(28.dp),
@@ -139,9 +137,7 @@ fun HeroFocusTimerBar(
     } else {
       Surface(
         onClick = {
-          if (hapticEnabled) {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-          }
+          launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
           onStartTimer(defaultDurationMinutes)
         },
         shape = RoundedCornerShape(8.dp),
@@ -171,9 +167,7 @@ fun HeroFocusTimerBar(
       if (isFocusModeActive) {
         Surface(
           onClick = {
-            if (hapticEnabled) {
-              haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            }
+            launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
             onToggleFocusMode()
           },
           shape = RoundedCornerShape(8.dp),
@@ -222,7 +216,7 @@ fun HomeFolderRow(
   onDeleteFolder: () -> Unit,
 ) {
   var menuExpanded by remember { mutableStateOf(false) }
-  val haptics = LocalHapticFeedback.current
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
   val iconShape = LocalAdaptiveIconShape.current.toComposeShape()
   val isDark = LocalLauncherIsDark.current
   val iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.92f else 0.88f)
@@ -237,15 +231,11 @@ fun HomeFolderRow(
             .clip(RoundedCornerShape(10.dp))
             .combinedClickable(
               onClick = {
-                if (hapticEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                 onToggleExpand()
               },
               onLongClick = {
-                if (hapticEnabled) {
-                  haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
+                launcherHaptics.trigger(LauncherHapticEvent.LONG_PRESS)
                 menuExpanded = true
               },
             )
@@ -336,6 +326,7 @@ fun HomeFolderRow(
                   )
                 },
                 onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                   dismiss()
                   onOpenAppInfo(app)
                 },
@@ -350,6 +341,7 @@ fun HomeFolderRow(
                   )
                 },
                 onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
                   dismiss()
                   onRenameApp(app)
                 },
@@ -368,6 +360,7 @@ fun HomeFolderRow(
                   )
                 },
                 onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
                   dismiss()
                   onToggleMindfulPause(app)
                 },
@@ -397,6 +390,7 @@ fun HomeFolderRow(
           Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         },
         onClick = {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
           menuExpanded = false
           onEditFolder()
         },
@@ -407,6 +401,7 @@ fun HomeFolderRow(
           Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DangerRed)
         },
         onClick = {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
           menuExpanded = false
           onDeleteFolder()
         },

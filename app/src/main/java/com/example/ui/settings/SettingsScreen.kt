@@ -100,6 +100,8 @@ import com.example.ui.components.MindfulAppsPickerDialog
 import com.example.ui.components.MindfulInsightsDialog
 import com.example.ui.components.WeatherCityPickerDialog
 import com.example.util.FocusAndSearchUtils
+import com.example.util.LauncherHapticEvent
+import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
 
 @Composable
@@ -142,13 +144,17 @@ fun SettingsScreen(
   onImportBackupJson: suspend (String) -> Boolean = { false },
   modifier: Modifier = Modifier,
 ) {
-  BackHandler(onBack = onBack)
-
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val settings = uiState.settings
   val accentColor = MaterialTheme.colorScheme.primary
+  val launcherHaptics = rememberLauncherHaptics(settings.hapticFeedbackEnabled)
+
+  BackHandler {
+    launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+    onBack()
+  }
 
   var showThemeDialog by remember { mutableStateOf(false) }
   var showIconShapeDialog by remember { mutableStateOf(false) }
@@ -218,7 +224,10 @@ fun SettingsScreen(
             .padding(horizontal = 20.dp, vertical = 12.dp),
       ) {
         IconButton(
-          onClick = onBack,
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+            onBack()
+          },
           modifier = Modifier.minimumInteractiveComponentSize().testTag("settings_back_button"),
         ) {
           Icon(
@@ -295,7 +304,10 @@ fun SettingsScreen(
                         else MaterialTheme.colorScheme.outlineVariant,
                       shape = CircleShape,
                     )
-                    .clickable { onSelectAccent(option) }
+                    .clickable {
+                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                      onSelectAccent(option)
+                    }
                     .testTag("accent_option_${option.name.lowercase()}"),
               )
             }
@@ -545,6 +557,7 @@ fun SettingsScreen(
           onCheckedChange = onToggleHapticFeedback,
           accentColor = accentColor,
           testTag = "haptic_feedback_switch",
+          forceWhenToggledOn = true,
         )
 
         SettingsToggleRow(
@@ -829,6 +842,7 @@ fun SettingsScreen(
           )
           Button(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
               showAboutDialog = false
               triggerDefaultLauncherRequest()
             },
@@ -840,6 +854,7 @@ fun SettingsScreen(
           }
           OutlinedButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
               showAboutDialog = false
               onReplayWelcomeSetup()
             },
@@ -850,6 +865,7 @@ fun SettingsScreen(
           }
           OutlinedButton(
             onClick = {
+              launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
               onResetLayout()
               showAboutDialog = false
               scope.launch {
