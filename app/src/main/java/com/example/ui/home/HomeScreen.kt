@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -159,6 +160,10 @@ fun HomeScreen(
   var batteryPercentState by remember { mutableStateOf<Int?>(null) }
   val hapticsEnabled = uiState.settings.hapticFeedbackEnabled
   val launcherHaptics = rememberLauncherHaptics(hapticsEnabled)
+
+  BackHandler(enabled = expandedFolderIds.isNotEmpty()) {
+    expandedFolderIds = emptySet()
+  }
 
   DisposableEffect(lifecycleOwner, context) {
     val observer = LifecycleEventObserver { _, event ->

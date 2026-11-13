@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -49,6 +51,18 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    // Root back-press guard: as a Home Launcher, MainActivity must never finish() on system back.
+    // Compose BackHandlers (AppDrawer, SettingsScreen, expanded folders) are registered after this
+    // in LIFO order and take precedence whenever active.
+    onBackPressedDispatcher.addCallback(
+      this,
+      object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+          // Stay on the Home screen without finishing or recreating MainActivity
+        }
+      },
+    )
 
     setContent {
       LauncherAppRoot(
@@ -94,6 +108,11 @@ private fun LauncherAppRoot(
   var destination by rememberSaveable { mutableStateOf(LauncherDestination.HOME) }
   var drawerFocusSearch by rememberSaveable { mutableStateOf(false) }
   var drawerInitialLetter by rememberSaveable { mutableStateOf<Char?>(null) }
+
+  // Consume Back on the Home screen so the root launcher Activity never finishes and relaunches.
+  BackHandler(enabled = destination == LauncherDestination.HOME) {
+    // Intentionally no-op at root Home state
+  }
 
   LaunchedEffect(homeIntentTrigger) {
     if (homeIntentTrigger > 0 && destination != LauncherDestination.HOME) {
