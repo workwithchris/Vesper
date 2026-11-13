@@ -63,6 +63,7 @@ class AppRepository(private val context: Context) {
     val userSerialNumber: Long = 0L,
     val launcherActivityInfo: LauncherActivityInfo? = null,
     val appCategory: Int = android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED,
+    val isSystemApp: Boolean = false,
   ) {
     val componentKey: String
       get() =
@@ -161,9 +162,13 @@ class AppRepository(private val context: Context) {
             val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty().ifEmpty { pkg }
             val cached =
               synchronized(iconCacheLock) { iconCache.get(key) } ?: loadFromDiskCache(key, stamp)
+            val appInfo = info.activityInfo.applicationInfo
             val category =
-              info.activityInfo.applicationInfo?.category
-                ?: android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED
+              appInfo?.category ?: android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED
+            val systemFlag =
+              appInfo != null &&
+                ((appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                  (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0)
             InstalledAppEntry(
               label = label,
               packageName = pkg,
@@ -173,6 +178,7 @@ class AppRepository(private val context: Context) {
               isAdaptiveIcon = cached?.isAdaptive ?: false,
               apkStamp = stamp,
               appCategory = category,
+              isSystemApp = systemFlag,
             )
           }
 
@@ -202,6 +208,10 @@ class AppRepository(private val context: Context) {
                   val cached =
                     synchronized(iconCacheLock) { iconCache.get(key) }
                       ?: loadFromDiskCache(key, stamp)
+                  val appInfo = activityInfo.applicationInfo
+                  val systemFlag =
+                    (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                      (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
                   InstalledAppEntry(
                     label = label,
                     packageName = component.packageName,
@@ -213,7 +223,8 @@ class AppRepository(private val context: Context) {
                     isWorkProfile = true,
                     userSerialNumber = serial,
                     launcherActivityInfo = activityInfo,
-                    appCategory = activityInfo.applicationInfo.category,
+                    appCategory = appInfo.category,
+                    isSystemApp = systemFlag,
                   )
                 }
               }
@@ -264,6 +275,7 @@ class AppRepository(private val context: Context) {
         isWorkProfile = entry.isWorkProfile,
         userSerialNumber = entry.userSerialNumber,
         appCategory = entry.appCategory,
+        isSystemApp = entry.isSystemApp,
       )
     }
   }
@@ -415,6 +427,36 @@ class AppRepository(private val context: Context) {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
       }
     runCatching { context.startActivity(intent) }
+  }
+
+  fun requestUninstallApp(packageName: String) {
+    val deleteIntent =
+      Intent(Intent.ACTION_DELETE).apply {
+        data = Uri.fromParts("package", packageName, null)
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+      }
+    val launched = runCatching { context.startActivity(deleteIntent) }.isSuccess
+    if (!launched) {
+      openAppInfo(packageName)
+    }
+  }
+
+  fun openAppStorePage(packageName: String) {
+    val marketIntent =
+      Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+      }
+    val started = runCatching { context.startActivity(marketIntent) }.isSuccess
+    if (!started) {
+      val webIntent =
+        Intent(
+          Intent.ACTION_VIEW,
+          Uri.parse("https://play.google.com/store/apps/details?id=$packageName"),
+        ).apply {
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+      runCatching { context.startActivity(webIntent) }
+    }
   }
 
   fun openClockApp() {

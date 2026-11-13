@@ -1,6 +1,9 @@
 package com.example.ui.settings
 
 import android.Manifest
+import android.app.Activity
+import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -46,13 +49,16 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.PanToolAlt
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.SlowMotionVideo
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.TouchApp
@@ -159,6 +165,10 @@ fun SettingsScreen(
   onChangeWallpaperDimPercent: (Int) -> Unit = {},
   onToggleWidgetStack: (Boolean) -> Unit = {},
   onAutoCategorizeFolders: ((Int) -> Unit) -> Unit = {},
+  onToggleAutoLaunchSingleMatch: (Boolean) -> Unit = {},
+  onToggleBottomAlignFavorites: (Boolean) -> Unit = {},
+  onToggleLeftHandedScrubber: (Boolean) -> Unit = {},
+  onToggleLockHiddenApps: (Boolean) -> Unit = {},
 ) {
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
@@ -190,6 +200,17 @@ fun SettingsScreen(
   var showScrollSpeedDialog by remember { mutableStateOf(false) }
   var showBackupDialog by remember { mutableStateOf(false) }
   var showAboutDialog by remember { mutableStateOf(false) }
+
+  val hiddenAppsAuthLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+      if (result.resultCode == Activity.RESULT_OK) {
+        showHiddenAppsDialog = true
+      } else {
+        scope.launch {
+          snackbarHostState.showSnackbar("Authentication required to view hidden apps")
+        }
+      }
+    }
 
   val wallpaperPickerLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -490,8 +511,40 @@ fun SettingsScreen(
           icon = Icons.Outlined.VisibilityOff,
           title = "Hidden apps",
           value = if (uiState.hiddenApps.isEmpty()) "None" else "${uiState.hiddenApps.size} hidden",
-          onClick = { showHiddenAppsDialog = true },
+          onClick = {
+            if (settings.lockHiddenApps) {
+              val keyguardManager =
+                context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+              if (keyguardManager?.isDeviceSecure == true) {
+                @Suppress("DEPRECATION")
+                val authIntent =
+                  keyguardManager.createConfirmDeviceCredentialIntent(
+                    "Hidden apps",
+                    "Authenticate to view or unhide apps",
+                  )
+                if (authIntent != null) {
+                  runCatching { hiddenAppsAuthLauncher.launch(authIntent) }
+                    .onFailure { showHiddenAppsDialog = true }
+                } else {
+                  showHiddenAppsDialog = true
+                }
+              } else {
+                showHiddenAppsDialog = true
+              }
+            } else {
+              showHiddenAppsDialog = true
+            }
+          },
           testTag = "settings_hidden_apps_row",
+        )
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.Lock,
+          title = "Lock hidden apps",
+          checked = settings.lockHiddenApps,
+          onCheckedChange = onToggleLockHiddenApps,
+          accentColor = accentColor,
+          testTag = "lock_hidden_apps_switch",
         )
 
         SettingsToggleRow(
@@ -504,12 +557,30 @@ fun SettingsScreen(
         )
 
         SettingsToggleRow(
+          icon = Icons.Outlined.PanToolAlt,
+          title = "Thumb-zone home alignment",
+          checked = settings.bottomAlignFavorites,
+          onCheckedChange = onToggleBottomAlignFavorites,
+          accentColor = accentColor,
+          testTag = "bottom_align_favorites_switch",
+        )
+
+        SettingsToggleRow(
           icon = Icons.Outlined.Tag,
           title = "Alphabet index",
           checked = settings.alphabetIndexEnabled,
           onCheckedChange = onToggleAlphabetIndex,
           accentColor = accentColor,
           testTag = "alphabet_index_switch",
+        )
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.SwapHoriz,
+          title = "Left-handed A–Z index",
+          checked = settings.leftHandedScrubber,
+          onCheckedChange = onToggleLeftHandedScrubber,
+          accentColor = accentColor,
+          testTag = "left_handed_scrubber_switch",
         )
 
         SettingsToggleRow(
@@ -650,6 +721,15 @@ fun SettingsScreen(
 
         SectionDivider()
         SectionHeader("BEHAVIOR")
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.Bolt,
+          title = "Auto-launch single search match",
+          checked = settings.autoLaunchSingleMatch,
+          onCheckedChange = onToggleAutoLaunchSingleMatch,
+          accentColor = accentColor,
+          testTag = "auto_launch_single_match_switch",
+        )
 
         SettingsValueRow(
           icon = Icons.Outlined.Bolt,

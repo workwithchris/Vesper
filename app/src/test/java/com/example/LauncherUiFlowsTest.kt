@@ -835,5 +835,128 @@ class LauncherUiFlowsTest {
     composeTestRule.onNodeWithText("8× · ", useUnmergedTree = true).assertIsDisplayed()
     composeTestRule.onNodeWithTag("app_row_com.music").assertIsDisplayed()
   }
+
+  @Test
+  fun `home widget stack swipes to quick scratchpad and app drawer supports auto-launch single match and uninstall`() {
+    var savedScratchpad by mutableStateOf("")
+    var autoLaunchedPkg: String? = null
+    var uninstalledPkg: String? = null
+    var storeOpenedPkg: String? = null
+    var queryState by mutableStateOf("")
+
+    composeTestRule.setContent {
+      val trimmed = queryState.trim()
+      val matchedApps =
+        listOf(sampleCalendar, sampleNotes).filter {
+          trimmed.isEmpty() || it.label.contains(trimmed, ignoreCase = true)
+        }
+      val uiState =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(sampleCalendar, sampleNotes),
+          allVisibleApps = listOf(sampleCalendar, sampleNotes),
+          favoriteApps = listOf(sampleCalendar),
+          filteredDrawerApps = matchedApps,
+          drawerSections =
+            matchedApps
+              .groupBy { it.initialLetter }
+              .map { (ch, list) -> com.example.model.AlphabetSection(ch, list) },
+          searchQuery = queryState,
+          activeTimeOfDayBucket = com.example.model.TimeOfDayBucket.EVENING,
+          frequentDrawerApps = listOf(sampleCalendar.copy(dailyLaunchCount = 4)),
+          settings =
+            LauncherSettings(
+              hasCompletedOnboarding = true,
+              reducedMotionEnabled = true,
+              autoLaunchSingleMatch = true,
+              quickScratchpadText = savedScratchpad,
+            ),
+        )
+      NeonSunsetTheme {
+        Box {
+          HomeScreen(
+            uiState = uiState,
+            onOpenDrawer = { _, _ -> },
+            onOpenSettings = {},
+            onClockClick = {},
+            onRefreshWeather = {},
+            onOpenCalendar = {},
+            onExpandNotificationShade = {},
+            onTriggerGestureAction = {},
+            onStartFocusTimer = {},
+            onStopFocusTimer = {},
+            onToggleFocusMode = {},
+            onLaunchApp = {},
+            onOpenAppInfo = {},
+            onRemoveFromFavorites = {},
+            onRenameApp = { _, _ -> },
+            onToggleMindfulPause = {},
+            onSaveFolder = { _, _, _ -> },
+            onDeleteFolder = {},
+            onSaveQuickScratchpad = { savedScratchpad = it },
+          )
+          AppDrawer(
+            isOpen = true,
+            focusSearchOnOpen = false,
+            initialLetter = null,
+            uiState = uiState,
+            onClose = {},
+            onSearchQueryChange = { queryState = it },
+            onLaunchApp = { autoLaunchedPkg = it.packageName },
+            onLaunchShortcut = {},
+            onDialNumber = {},
+            onOpenUrl = {},
+            onWebSearch = {},
+            onOpenAppInfo = {},
+            onToggleFavorite = {},
+            onRenameApp = { _, _ -> },
+            onHideApp = {},
+            onToggleMindfulPause = {},
+            onUninstallApp = { uninstalledPkg = it.packageName },
+            onOpenStorePage = { storeOpenedPkg = it.packageName },
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    // Contextual time-of-day header shows FREQUENT · EVENING
+    composeTestRule.onNodeWithTag("frequent_apps_header").assertIsDisplayed()
+    composeTestRule.onNodeWithText("FREQUENT · EVENING").assertIsDisplayed()
+
+    // Long-press user app in drawer shows Store page and Uninstall
+    composeTestRule.onNodeWithTag("drawer_app_list").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Notes").performTouchInput { longClick() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Store page").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("com.notes", storeOpenedPkg)
+
+    composeTestRule.onNodeWithText("Notes").performTouchInput { longClick() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Uninstall").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("com.notes", uninstalledPkg)
+
+    // Typing "Cal" narrows to a single match and auto-launches Calendar immediately
+    queryState = "Cal"
+    composeTestRule.waitForIdle()
+    assertEquals("com.cal", autoLaunchedPkg)
+
+    // Swipe widget stack on Home (Slot 0 -> 1 -> 2 -> 3 = Quick Scratchpad)
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("quick_scratchpad_pill").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("quick_scratchpad_dialog").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("quick_scratchpad_input").performTextReplacement("Pick up espresso beans")
+    composeTestRule.onNodeWithTag("quick_scratchpad_save_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("Pick up espresso beans", savedScratchpad)
+  }
 }
 

@@ -17,6 +17,7 @@ data class AppInfo(
   val isWorkProfile: Boolean = false,
   val userSerialNumber: Long = 0L,
   val appCategory: Int = -1,
+  val isSystemApp: Boolean = false,
 ) {
   val componentKey: String
     get() =
@@ -151,6 +152,21 @@ enum class DrawerProfileFilter(val label: String) {
   WORK("Work"),
 }
 
+enum class TimeOfDayBucket(val label: String) {
+  MORNING("Morning"),
+  AFTERNOON("Afternoon"),
+  EVENING("Evening");
+
+  companion object {
+    fun fromHour(hourOfDay: Int): TimeOfDayBucket =
+      when (hourOfDay) {
+        in 5..11 -> MORNING
+        in 12..17 -> AFTERNOON
+        else -> EVENING
+      }
+  }
+}
+
 @Immutable
 data class CalendarEventPreview(
   val id: Long,
@@ -205,6 +221,11 @@ data class LauncherSettings(
   val wallpaperDimPercent: Int = 55,
   val dailyIntention: String = "",
   val widgetStackEnabled: Boolean = true,
+  val autoLaunchSingleMatch: Boolean = false,
+  val bottomAlignFavorites: Boolean = false,
+  val leftHandedScrubber: Boolean = false,
+  val lockHiddenApps: Boolean = false,
+  val quickScratchpadText: String = "",
 )
 
 @Immutable
@@ -272,6 +293,7 @@ data class LauncherUiState(
   val drawerProfileFilter: DrawerProfileFilter = DrawerProfileFilter.ALL,
   val hasWorkProfileApps: Boolean = false,
   val frequentDrawerApps: List<AppInfo> = emptyList(),
+  val activeTimeOfDayBucket: TimeOfDayBucket = TimeOfDayBucket.MORNING,
   val appShortcutsByPackage: Map<String, List<AppShortcutItem>> = emptyMap(),
 )
 

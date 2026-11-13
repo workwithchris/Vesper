@@ -225,6 +225,7 @@ private fun LauncherAppRoot(
             onSaveDailyIntention = viewModel::setDailyIntention,
             onLaunchShortcut = viewModel::launchShortcut,
             onAutoCategorizeFolders = { viewModel.autoCategorizeFolders() },
+            onSaveQuickScratchpad = viewModel::setQuickScratchpadText,
           )
 
           AppDrawer(
@@ -282,6 +283,8 @@ private fun LauncherAppRoot(
             onHideApp = viewModel::hideApp,
             onToggleMindfulPause = viewModel::toggleMindfulPausedApp,
             onSelectProfileFilter = viewModel::setDrawerProfileFilter,
+            onUninstallApp = viewModel::requestUninstallApp,
+            onOpenStorePage = viewModel::openAppStorePage,
           )
         }
         LauncherDestination.SETTINGS -> {
@@ -332,6 +335,10 @@ private fun LauncherAppRoot(
             onChangeWallpaperDimPercent = viewModel::setWallpaperDimPercent,
             onToggleWidgetStack = viewModel::setWidgetStackEnabled,
             onAutoCategorizeFolders = viewModel::autoCategorizeFolders,
+            onToggleAutoLaunchSingleMatch = viewModel::setAutoLaunchSingleMatch,
+            onToggleBottomAlignFavorites = viewModel::setBottomAlignFavorites,
+            onToggleLeftHandedScrubber = viewModel::setLeftHandedScrubber,
+            onToggleLockHiddenApps = viewModel::setLockHiddenApps,
           )
         }
       }

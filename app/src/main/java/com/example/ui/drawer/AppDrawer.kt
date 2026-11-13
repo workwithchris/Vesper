@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SelfImprovement
+import androidx.compose.material.icons.outlined.Shop
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -99,6 +101,7 @@ import com.example.ui.components.AppListRow
 import com.example.ui.components.FramedAppIcon
 import com.example.ui.components.MinimalDropdownItem
 import com.example.ui.components.RenameAppDialog
+import com.example.ui.theme.DangerRed
 import com.example.util.LauncherHapticEvent
 import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
@@ -123,6 +126,8 @@ fun AppDrawer(
   onToggleMindfulPause: (AppInfo) -> Unit,
   modifier: Modifier = Modifier,
   onSelectProfileFilter: (DrawerProfileFilter) -> Unit = {},
+  onUninstallApp: (AppInfo) -> Unit = {},
+  onOpenStorePage: (AppInfo) -> Unit = {},
 ) {
   val launcherHaptics = rememberLauncherHaptics(uiState.settings.hapticFeedbackEnabled)
   val focusManager = LocalFocusManager.current
@@ -207,6 +212,25 @@ fun AppDrawer(
     LaunchedEffect(isOpen, initialLetter, sectionIndexMap) {
       if (isOpen && initialLetter != null && sectionIndexMap.isNotEmpty()) {
         jumpToLetter(initialLetter)
+      }
+    }
+
+    LaunchedEffect(
+      isOpen,
+      uiState.searchQuery,
+      uiState.filteredDrawerApps.size,
+      uiState.settings.autoLaunchSingleMatch,
+    ) {
+      if (
+        isOpen &&
+          uiState.settings.autoLaunchSingleMatch &&
+          uiState.searchQuery.trim().length >= 2 &&
+          uiState.filteredDrawerApps.size == 1 &&
+          uiState.quickMathResult == null &&
+          uiState.drawerQuickAction == null
+      ) {
+        launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+        onLaunchApp(uiState.filteredDrawerApps.first())
       }
     }
 
@@ -428,10 +452,10 @@ fun AppDrawer(
         if (uiState.searchQuery.isEmpty() && uiState.frequentDrawerApps.isNotEmpty()) {
           Spacer(modifier = Modifier.height(8.dp))
           Text(
-            text = "FREQUENT",
+            text = "FREQUENT · ${uiState.activeTimeOfDayBucket.label.uppercase()}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 24.dp),
+            modifier = Modifier.padding(horizontal = 24.dp).testTag("frequent_apps_header"),
           )
           Spacer(modifier = Modifier.height(4.dp))
           LazyRow(
@@ -611,7 +635,25 @@ fun AppDrawer(
               }
             }
           } else {
+            val leftScrubber =
+              uiState.settings.alphabetIndexEnabled && uiState.settings.leftHandedScrubber
+            val rightScrubber =
+              uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber
+
             Row(modifier = Modifier.fillMaxSize()) {
+              if (leftScrubber) {
+                AlphabetScrubberRail(
+                  activeLetter = scrubbingLetter ?: visibleTopLetter,
+                  hapticEnabled = uiState.settings.hapticFeedbackEnabled,
+                  onLetterSelected = { letter ->
+                    scrubbingLetter = letter
+                    jumpToLetter(letter)
+                  },
+                  onScrubEnd = { scrubbingLetter = null },
+                  modifier = Modifier.padding(top = 8.dp, bottom = 12.dp, start = 6.dp),
+                )
+              }
+
               val defaultFling = androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
               val scrollMultiplier = uiState.settings.scrollSpeed.scrollMultiplier
               val scaledFling =
@@ -631,8 +673,8 @@ fun AppDrawer(
                 flingBehavior = scaledFling,
                 contentPadding =
                   PaddingValues(
-                    start = 24.dp,
-                    end = if (uiState.settings.alphabetIndexEnabled) 8.dp else 24.dp,
+                    start = if (leftScrubber) 8.dp else 24.dp,
+                    end = if (rightScrubber) 8.dp else 24.dp,
                     top = 2.dp,
                     bottom = 16.dp,
                   ),
@@ -771,6 +813,38 @@ fun AppDrawer(
                           onHideApp(app)
                         },
                       )
+                      MinimalDropdownItem(
+                        text = "Store page",
+                        icon = {
+                          Icon(
+                            Icons.Outlined.Shop,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                          )
+                        },
+                        onClick = {
+                          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                          dismiss()
+                          onOpenStorePage(app)
+                        },
+                      )
+                      if (!app.isSystemApp) {
+                        MinimalDropdownItem(
+                          text = "Uninstall",
+                          icon = {
+                            Icon(
+                              Icons.Outlined.DeleteOutline,
+                              contentDescription = null,
+                              tint = DangerRed,
+                            )
+                          },
+                          onClick = {
+                            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                            dismiss()
+                            onUninstallApp(app)
+                          },
+                        )
+                      }
                     }
                   }
                 }
@@ -790,7 +864,7 @@ fun AppDrawer(
                 }
               }
 
-              if (uiState.settings.alphabetIndexEnabled) {
+              if (rightScrubber) {
                 AlphabetScrubberRail(
                   activeLetter = scrubbingLetter ?: visibleTopLetter,
                   hapticEnabled = uiState.settings.hapticFeedbackEnabled,
@@ -807,11 +881,17 @@ fun AppDrawer(
 
           val activeBubble = scrubbingLetter
           if (activeBubble != null) {
+            val bubbleLeft = uiState.settings.leftHandedScrubber
             Surface(
               shape = RoundedCornerShape(16.dp),
               color = accentColor,
               shadowElevation = 8.dp,
-              modifier = Modifier.align(Alignment.CenterEnd).padding(end = 44.dp),
+              modifier =
+                if (bubbleLeft) {
+                  Modifier.align(Alignment.CenterStart).padding(start = 44.dp)
+                } else {
+                  Modifier.align(Alignment.CenterEnd).padding(end = 44.dp)
+                },
             ) {
               Text(
                 text = activeBubble.toString(),

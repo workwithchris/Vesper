@@ -18,10 +18,12 @@ import com.example.model.HomeGestureAction
 import com.example.model.LauncherSettings
 import com.example.model.ScrollSpeed
 import com.example.model.ThemeMode
+import com.example.model.TimeOfDayBucket
 import com.example.model.WeatherEffectType
 import com.example.model.WeatherInfo
 import com.example.model.WeatherLocation
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
@@ -85,6 +87,12 @@ class SettingsRepository(private val context: Context) {
     val WALLPAPER_DIM_PERCENT = intPreferencesKey("wallpaper_dim_percent")
     val DAILY_INTENTION = stringPreferencesKey("daily_intention")
     val WIDGET_STACK_ENABLED = booleanPreferencesKey("widget_stack_enabled")
+    val AUTO_LAUNCH_SINGLE_MATCH = booleanPreferencesKey("auto_launch_single_match")
+    val BOTTOM_ALIGN_FAVORITES = booleanPreferencesKey("bottom_align_favorites")
+    val LEFT_HANDED_SCRUBBER = booleanPreferencesKey("left_handed_scrubber")
+    val LOCK_HIDDEN_APPS = booleanPreferencesKey("lock_hidden_apps")
+    val QUICK_SCRATCHPAD_TEXT = stringPreferencesKey("quick_scratchpad_text")
+    val CONTEXTUAL_LAUNCH_COUNTS_JSON = stringPreferencesKey("contextual_launch_counts_json")
   }
 
   private fun todayKey(): String =
@@ -149,6 +157,11 @@ class SettingsRepository(private val context: Context) {
         wallpaperDimPercent = (prefs[Keys.WALLPAPER_DIM_PERCENT] ?: 55).coerceIn(20, 85),
         dailyIntention = prefs[Keys.DAILY_INTENTION] ?: "",
         widgetStackEnabled = prefs[Keys.WIDGET_STACK_ENABLED] ?: true,
+        autoLaunchSingleMatch = prefs[Keys.AUTO_LAUNCH_SINGLE_MATCH] ?: false,
+        bottomAlignFavorites = prefs[Keys.BOTTOM_ALIGN_FAVORITES] ?: false,
+        leftHandedScrubber = prefs[Keys.LEFT_HANDED_SCRUBBER] ?: false,
+        lockHiddenApps = prefs[Keys.LOCK_HIDDEN_APPS] ?: false,
+        quickScratchpadText = prefs[Keys.QUICK_SCRATCHPAD_TEXT] ?: "",
       )
     }
 
@@ -159,6 +172,11 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.data.map { prefs ->
       if (prefs[Keys.DAILY_LAUNCH_COUNTS_DATE] != todayKey()) emptyMap()
       else decodeIntMap(prefs[Keys.DAILY_LAUNCH_COUNTS_JSON])
+    }
+
+  val contextualLaunchCountsFlow: Flow<Map<String, Int>> =
+    context.launcherDataStore.data.map { prefs ->
+      decodeIntMap(prefs[Keys.CONTEXTUAL_LAUNCH_COUNTS_JSON])
     }
 
   val dailyMindfulTotalsFlow: Flow<DailyMindfulTotals> =
@@ -371,6 +389,30 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.edit { it[Keys.WIDGET_STACK_ENABLED] = enabled }
   }
 
+  suspend fun setAutoLaunchSingleMatch(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.AUTO_LAUNCH_SINGLE_MATCH] = enabled }
+  }
+
+  suspend fun setBottomAlignFavorites(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.BOTTOM_ALIGN_FAVORITES] = enabled }
+  }
+
+  suspend fun setLeftHandedScrubber(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.LEFT_HANDED_SCRUBBER] = enabled }
+  }
+
+  suspend fun setLockHiddenApps(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.LOCK_HIDDEN_APPS] = enabled }
+  }
+
+  suspend fun setQuickScratchpadText(text: String) {
+    context.launcherDataStore.edit { prefs ->
+      val trimmed = text.trim()
+      if (trimmed.isEmpty()) prefs.remove(Keys.QUICK_SCRATCHPAD_TEXT)
+      else prefs[Keys.QUICK_SCRATCHPAD_TEXT] = trimmed
+    }
+  }
+
   suspend fun importSettingsBackup(jsonString: String): Boolean {
     val imported = decodeSettingsBackupJson(jsonString) ?: return false
     context.launcherDataStore.edit { prefs ->
@@ -409,6 +451,15 @@ class SettingsRepository(private val context: Context) {
       if (imported.dailyIntention.isNotBlank()) prefs[Keys.DAILY_INTENTION] = imported.dailyIntention
       else prefs.remove(Keys.DAILY_INTENTION)
       prefs[Keys.WIDGET_STACK_ENABLED] = imported.widgetStackEnabled
+      prefs[Keys.AUTO_LAUNCH_SINGLE_MATCH] = imported.autoLaunchSingleMatch
+      prefs[Keys.BOTTOM_ALIGN_FAVORITES] = imported.bottomAlignFavorites
+      prefs[Keys.LEFT_HANDED_SCRUBBER] = imported.leftHandedScrubber
+      prefs[Keys.LOCK_HIDDEN_APPS] = imported.lockHiddenApps
+      if (imported.quickScratchpadText.isNotBlank()) {
+        prefs[Keys.QUICK_SCRATCHPAD_TEXT] = imported.quickScratchpadText
+      } else {
+        prefs.remove(Keys.QUICK_SCRATCHPAD_TEXT)
+      }
       prefs[Keys.HAS_COMPLETED_ONBOARDING] = true
     }
     return true
@@ -433,6 +484,10 @@ class SettingsRepository(private val context: Context) {
 
   suspend fun incrementDailyLaunchCount(componentKey: String) {
     val today = todayKey()
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val bucket = TimeOfDayBucket.fromHour(currentHour)
+    val bucketKey = "${bucket.name}:$componentKey"
+
     context.launcherDataStore.edit { prefs ->
       val map =
         if (prefs[Keys.DAILY_LAUNCH_COUNTS_DATE] == today) {
@@ -443,6 +498,11 @@ class SettingsRepository(private val context: Context) {
       map[componentKey] = (map[componentKey] ?: 0) + 1
       prefs[Keys.DAILY_LAUNCH_COUNTS_DATE] = today
       prefs[Keys.DAILY_LAUNCH_COUNTS_JSON] = encodeIntMap(map)
+
+      val contextualMap =
+        decodeIntMap(prefs[Keys.CONTEXTUAL_LAUNCH_COUNTS_JSON]).toMutableMap()
+      contextualMap[bucketKey] = (contextualMap[bucketKey] ?: 0) + 1
+      prefs[Keys.CONTEXTUAL_LAUNCH_COUNTS_JSON] = encodeIntMap(contextualMap)
     }
   }
 
@@ -468,6 +528,11 @@ class SettingsRepository(private val context: Context) {
       prefs.remove(Keys.CUSTOM_WALLPAPER_PATH)
       prefs.remove(Keys.DAILY_INTENTION)
       prefs[Keys.WIDGET_STACK_ENABLED] = true
+      prefs[Keys.AUTO_LAUNCH_SINGLE_MATCH] = false
+      prefs[Keys.BOTTOM_ALIGN_FAVORITES] = false
+      prefs[Keys.LEFT_HANDED_SCRUBBER] = false
+      prefs[Keys.LOCK_HIDDEN_APPS] = false
+      prefs.remove(Keys.QUICK_SCRATCHPAD_TEXT)
     }
   }
 
@@ -578,6 +643,11 @@ class SettingsRepository(private val context: Context) {
         put("wallpaperDim", s.wallpaperDimPercent)
         put("dailyIntention", s.dailyIntention)
         put("widgetStack", s.widgetStackEnabled)
+        put("autoLaunchSingle", s.autoLaunchSingleMatch)
+        put("bottomAlignFavorites", s.bottomAlignFavorites)
+        put("leftHandedScrubber", s.leftHandedScrubber)
+        put("lockHiddenApps", s.lockHiddenApps)
+        put("quickScratchpad", s.quickScratchpadText)
         put(
           "weatherLoc",
           JSONObject().apply {
@@ -651,6 +721,11 @@ class SettingsRepository(private val context: Context) {
           wallpaperDimPercent = obj.optInt("wallpaperDim", 55).coerceIn(20, 85),
           dailyIntention = obj.optString("dailyIntention", ""),
           widgetStackEnabled = obj.optBoolean("widgetStack", true),
+          autoLaunchSingleMatch = obj.optBoolean("autoLaunchSingle", false),
+          bottomAlignFavorites = obj.optBoolean("bottomAlignFavorites", false),
+          leftHandedScrubber = obj.optBoolean("leftHandedScrubber", false),
+          lockHiddenApps = obj.optBoolean("lockHiddenApps", false),
+          quickScratchpadText = obj.optString("quickScratchpad", ""),
           weatherLocation = location,
           hasCompletedOnboarding = true,
         )

@@ -574,5 +574,42 @@ class LauncherModelsTest {
     // Inside Social, WhatsApp (9) comes before Slack (4)
     assertEquals(listOf(whatsapp.componentKey, slack.componentKey), folders[1].componentKeys)
   }
+
+  @Test
+  fun `TimeOfDayBucket maps morning afternoon and evening hours and backup roundtrips new UX settings`() {
+    assertEquals(
+      com.example.model.TimeOfDayBucket.MORNING,
+      com.example.model.TimeOfDayBucket.fromHour(7),
+    )
+    assertEquals(
+      com.example.model.TimeOfDayBucket.AFTERNOON,
+      com.example.model.TimeOfDayBucket.fromHour(14),
+    )
+    assertEquals(
+      com.example.model.TimeOfDayBucket.EVENING,
+      com.example.model.TimeOfDayBucket.fromHour(21),
+    )
+    assertEquals(
+      com.example.model.TimeOfDayBucket.EVENING,
+      com.example.model.TimeOfDayBucket.fromHour(2),
+    )
+
+    val original =
+      LauncherSettings(
+        autoLaunchSingleMatch = true,
+        bottomAlignFavorites = true,
+        leftHandedScrubber = true,
+        lockHiddenApps = true,
+        quickScratchpadText = "Call Alex at 4pm",
+      )
+    val json = com.example.data.SettingsRepository.encodeSettingsBackupJson(original)
+    val restored = com.example.data.SettingsRepository.decodeSettingsBackupJson(json)
+    assertNotNull(restored)
+    assertTrue(restored?.autoLaunchSingleMatch == true)
+    assertTrue(restored?.bottomAlignFavorites == true)
+    assertTrue(restored?.leftHandedScrubber == true)
+    assertTrue(restored?.lockHiddenApps == true)
+    assertEquals("Call Alex at 4pm", restored?.quickScratchpadText)
+  }
 }
 

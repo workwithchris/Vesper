@@ -25,11 +25,13 @@ import com.example.model.MindfulInsights
 import com.example.model.ResolvedFolder
 import com.example.model.ScrollSpeed
 import com.example.model.ThemeMode
+import com.example.model.TimeOfDayBucket
 import com.example.model.WeatherInfo
 import com.example.model.WeatherLocation
 import com.example.util.FocusAndSearchUtils
 import com.example.util.MathEvaluator
 import com.example.util.SmartFolderCategorizer
+import java.util.Calendar
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +72,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   private data class EnvironmentSnapshot(
     val launchCounts: Map<String, Int>,
+    val contextualCounts: Map<String, Int>,
     val mindfulTotals: DailyMindfulTotals,
     val weather: WeatherInfo,
     val nextEvent: CalendarEventPreview?,
@@ -97,11 +100,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
   private val environmentFlow =
     combine(
       settingsRepository.dailyLaunchCountsFlow,
+      settingsRepository.contextualLaunchCountsFlow,
       settingsRepository.dailyMindfulTotalsFlow,
       weatherFlow,
       calendarEventFlow,
-    ) { launchCounts, mindfulTotals, weather, nextEvent ->
-      EnvironmentSnapshot(launchCounts, mindfulTotals, weather, nextEvent)
+    ) { launchCounts, contextualCounts, mindfulTotals, weather, nextEvent ->
+      EnvironmentSnapshot(launchCounts, contextualCounts, mindfulTotals, weather, nextEvent)
     }
 
   private val transientFlow =
@@ -209,13 +213,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
           }
         }
 
+      val currentHour =
+        Calendar.getInstance().apply { timeInMillis = trans.nowMillis }.get(Calendar.HOUR_OF_DAY)
+      val activeBucket = TimeOfDayBucket.fromHour(currentHour)
+
       val frequentDrawerApps =
         if (trimmedQuery.isNotEmpty()) {
           emptyList()
         } else {
           profileFilteredApps
-            .filter { it.dailyLaunchCount > 0 }
-            .sortedByDescending { it.dailyLaunchCount }
+            .mapNotNull { app ->
+              val bucketScore =
+                (env.contextualCounts["${activeBucket.name}:${app.componentKey}"] ?: 0) * 2
+              val totalScore = bucketScore + app.dailyLaunchCount
+              if (totalScore > 0) app to totalScore else null
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
             .take(4)
         }
 
@@ -290,6 +304,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         drawerProfileFilter = effectiveProfileFilter,
         hasWorkProfileApps = hasWorkApps,
         frequentDrawerApps = frequentDrawerApps,
+        activeTimeOfDayBucket = activeBucket,
         appShortcutsByPackage = shortcutsByPackage,
       )
     }
@@ -428,6 +443,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             isWorkProfile = entry.isWorkProfile,
             userSerialNumber = entry.userSerialNumber,
             appCategory = entry.appCategory,
+            isSystemApp = entry.isSystemApp,
           )
         }
       installedAppsFlow.value = initialApps
@@ -531,6 +547,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   fun openAppInfo(app: AppInfo) {
     appRepository.openAppInfo(app.packageName)
+  }
+
+  fun requestUninstallApp(app: AppInfo) {
+    appRepository.requestUninstallApp(app.packageName)
+  }
+
+  fun openAppStorePage(app: AppInfo) {
+    appRepository.openAppStorePage(app.packageName)
   }
 
   fun openClockApp() {
@@ -805,6 +829,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   fun setWidgetStackEnabled(enabled: Boolean) {
     viewModelScope.launch { settingsRepository.setWidgetStackEnabled(enabled) }
+  }
+
+  fun setAutoLaunchSingleMatch(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setAutoLaunchSingleMatch(enabled) }
+  }
+
+  fun setBottomAlignFavorites(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setBottomAlignFavorites(enabled) }
+  }
+
+  fun setLeftHandedScrubber(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setLeftHandedScrubber(enabled) }
+  }
+
+  fun setLockHiddenApps(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setLockHiddenApps(enabled) }
+  }
+
+  fun setQuickScratchpadText(text: String) {
+    viewModelScope.launch { settingsRepository.setQuickScratchpadText(text) }
   }
 
   fun resetLayout() {

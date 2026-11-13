@@ -761,4 +761,120 @@ fun GeistWidgetStack(
   }
 }
 
+@Composable
+fun QuickScratchpadPill(
+  scratchpadText: String,
+  hapticEnabled: Boolean = true,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
+  val hasNote = scratchpadText.isNotBlank()
+  val previewLine =
+    remember(scratchpadText) {
+      scratchpadText.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    }
+  Surface(
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+      onClick()
+    },
+    shape = RoundedCornerShape(8.dp),
+    color = MaterialTheme.colorScheme.surface.copy(alpha = if (hasNote) 0.90f else 0.72f),
+    border =
+      BorderStroke(
+        width = 1.dp,
+        color =
+          if (hasNote) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+          else MaterialTheme.colorScheme.outline,
+      ),
+    modifier = modifier.fillMaxWidth().testTag("quick_scratchpad_pill"),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Icon(
+        imageVector = Icons.Outlined.Edit,
+        contentDescription = "Quick scratchpad",
+        tint =
+          if (hasNote) MaterialTheme.colorScheme.primary
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(14.dp),
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = if (hasNote) previewLine else "Quick scratchpad note...",
+        style = MaterialTheme.typography.bodyMedium,
+        color =
+          if (hasNote) MaterialTheme.colorScheme.onBackground
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+      )
+    }
+  }
+}
+
+@Composable
+fun QuickScratchpadDialog(
+  currentText: String,
+  onSave: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  var text by remember(currentText) { mutableStateOf(currentText) }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    shape = RoundedCornerShape(12.dp),
+    containerColor = MaterialTheme.colorScheme.surface,
+    title = { Text("Quick scratchpad") },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+          text = "Jot down quick notes, thoughts, or snippets right on your home widget stack.",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+          value = text,
+          onValueChange = { if (it.length <= 400) text = it },
+          minLines = 3,
+          maxLines = 6,
+          placeholder = { Text("Type a quick note or checklist item...") },
+          colors =
+            OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = MaterialTheme.colorScheme.primary,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            ),
+          modifier = Modifier.fillMaxWidth().testTag("quick_scratchpad_input"),
+        )
+      }
+    },
+    confirmButton = {
+      TextButton(
+        onClick = { onSave(text.trim()) },
+        modifier = Modifier.testTag("quick_scratchpad_save_button"),
+      ) {
+        Text("Save")
+      }
+    },
+    dismissButton = {
+      Row {
+        if (currentText.isNotBlank()) {
+          TextButton(
+            onClick = { onSave("") },
+            modifier = Modifier.testTag("quick_scratchpad_clear_button"),
+          ) {
+            Text("Clear", color = DangerRed)
+          }
+        }
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+      }
+    },
+    modifier = Modifier.testTag("quick_scratchpad_dialog"),
+  )
+}
+
+
 

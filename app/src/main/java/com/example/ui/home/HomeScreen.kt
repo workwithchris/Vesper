@@ -147,6 +147,7 @@ fun HomeScreen(
   onSaveDailyIntention: (String) -> Unit = {},
   onLaunchShortcut: (AppShortcutItem) -> Unit = {},
   onAutoCategorizeFolders: () -> Unit = {},
+  onSaveQuickScratchpad: (String) -> Unit = {},
 ) {
   val context = LocalContext.current
   val lifecycleOwner = LocalLifecycleOwner.current
@@ -156,6 +157,7 @@ fun HomeScreen(
   var expandedFolderIds by remember { mutableStateOf<Set<String>>(emptySet()) }
   var showCityPicker by remember { mutableStateOf(false) }
   var showIntentionDialog by remember { mutableStateOf(false) }
+  var showScratchpadDialog by remember { mutableStateOf(false) }
   var systemLowPowerMode by remember { mutableStateOf(isSystemLowPowerOrReducedMotion(context)) }
   var batteryPercentState by remember { mutableStateOf<Int?>(null) }
   val hapticsEnabled = uiState.settings.hapticFeedbackEnabled
@@ -396,6 +398,7 @@ fun HomeScreen(
               onStopFocusTimer = onStopFocusTimer,
               onToggleFocusMode = onToggleFocusMode,
               onOpenIntentionDialog = { showIntentionDialog = true },
+              onOpenScratchpadDialog = { showScratchpadDialog = true },
             )
 
             HomeBottomActionBar(
@@ -407,6 +410,15 @@ fun HomeScreen(
           }
 
           Row(modifier = Modifier.weight(0.54f).fillMaxHeight()) {
+            if (uiState.settings.alphabetIndexEnabled && uiState.settings.leftHandedScrubber) {
+              AlphabetScrubberRail(
+                activeLetter = null,
+                hapticEnabled = hapticsEnabled,
+                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp, end = 6.dp),
+              )
+            }
+
             HomeFavoritesPane(
               uiState = uiState,
               listState = listState,
@@ -431,7 +443,7 @@ fun HomeScreen(
               modifier = Modifier.weight(1f).fillMaxHeight().padding(top = 12.dp),
             )
 
-            if (uiState.settings.alphabetIndexEnabled) {
+            if (uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber) {
               AlphabetScrubberRail(
                 activeLetter = null,
                 hapticEnabled = hapticsEnabled,
@@ -442,14 +454,29 @@ fun HomeScreen(
           }
         }
       } else {
+        val leftScrubber = uiState.settings.alphabetIndexEnabled && uiState.settings.leftHandedScrubber
+        val rightScrubber = uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber
+
         Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
           Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            if (leftScrubber) {
+              AlphabetScrubberRail(
+                activeLetter = null,
+                hapticEnabled = hapticsEnabled,
+                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                modifier = Modifier.padding(top = 136.dp, bottom = 12.dp, start = 6.dp),
+              )
+            }
+
             Column(
               modifier =
                 Modifier
                   .weight(1f)
                   .fillMaxHeight()
-                  .padding(start = 24.dp, end = if (uiState.settings.alphabetIndexEnabled) 8.dp else 24.dp),
+                  .padding(
+                    start = if (leftScrubber) 8.dp else 24.dp,
+                    end = if (rightScrubber) 8.dp else 24.dp,
+                  ),
             ) {
               HomeHeroBlock(
                 uiState = uiState,
@@ -471,6 +498,7 @@ fun HomeScreen(
                 onStopFocusTimer = onStopFocusTimer,
                 onToggleFocusMode = onToggleFocusMode,
                 onOpenIntentionDialog = { showIntentionDialog = true },
+                onOpenScratchpadDialog = { showScratchpadDialog = true },
               )
 
               Spacer(modifier = Modifier.height(14.dp))
@@ -500,7 +528,7 @@ fun HomeScreen(
               )
             }
 
-            if (uiState.settings.alphabetIndexEnabled) {
+            if (rightScrubber) {
               AlphabetScrubberRail(
                 activeLetter = null,
                 hapticEnabled = hapticsEnabled,
@@ -541,6 +569,17 @@ fun HomeScreen(
         showIntentionDialog = false
       },
       onDismiss = { showIntentionDialog = false },
+    )
+  }
+
+  if (showScratchpadDialog) {
+    QuickScratchpadDialog(
+      currentText = uiState.settings.quickScratchpadText,
+      onSave = { note ->
+        onSaveQuickScratchpad(note)
+        showScratchpadDialog = false
+      },
+      onDismiss = { showScratchpadDialog = false },
     )
   }
 
@@ -596,6 +635,7 @@ private fun HomeHeroBlock(
   onStopFocusTimer: () -> Unit,
   onToggleFocusMode: () -> Unit,
   onOpenIntentionDialog: () -> Unit,
+  onOpenScratchpadDialog: () -> Unit = {},
 ) {
   Column(
     modifier =
@@ -726,6 +766,14 @@ private fun HomeHeroBlock(
       )
     }
 
+    val scratchpadSlot: @Composable () -> Unit = {
+      QuickScratchpadPill(
+        scratchpadText = uiState.settings.quickScratchpadText,
+        hapticEnabled = hapticsEnabled,
+        onClick = onOpenScratchpadDialog,
+      )
+    }
+
     val nextEvent = uiState.nextCalendarEvent
     val calendarSlot: (@Composable () -> Unit)? =
       if (nextEvent != null) {
@@ -780,6 +828,7 @@ private fun HomeHeroBlock(
           add(weatherSlot)
           add(focusTimerSlot)
           add(intentionSlot)
+          add(scratchpadSlot)
           if (calendarSlot != null) add(calendarSlot)
         }
       GeistWidgetStack(
@@ -796,6 +845,8 @@ private fun HomeHeroBlock(
       focusTimerSlot()
       Spacer(modifier = Modifier.height(8.dp))
       intentionSlot()
+      Spacer(modifier = Modifier.height(6.dp))
+      scratchpadSlot()
     }
   }
 }
@@ -875,6 +926,8 @@ private fun HomeFavoritesPane(
         else -> {
           LazyColumn(
             state = listState,
+            verticalArrangement =
+              if (uiState.settings.bottomAlignFavorites) Arrangement.Bottom else Arrangement.Top,
             contentPadding = PaddingValues(bottom = 12.dp),
             modifier = Modifier.fillMaxSize().testTag("favorites_list"),
           ) {
