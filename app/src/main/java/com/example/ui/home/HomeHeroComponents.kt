@@ -427,7 +427,7 @@ fun HomeFolderRow(
               .padding(horizontal = 12.dp, vertical = 4.dp)
               .testTag("folder_expanded_${resolvedFolder.folder.name}"),
         ) {
-          resolvedFolder.apps.forEachIndexed { idx, app ->
+          resolvedFolder.apps.forEach { app ->
             AppListRow(
               app = app,
               showLabel = showLabel,
@@ -435,7 +435,7 @@ fun HomeFolderRow(
               showDailyLaunchCount = showDailyLaunchCount,
               iconSize = 36.dp,
               onTap = { onLaunchApp(app) },
-              showDivider = idx < resolvedFolder.apps.lastIndex,
+              showDivider = false,
             ) { dismiss ->
               MinimalDropdownItem(
                 text = stringResource(R.string.app_info),
@@ -507,11 +507,6 @@ fun HomeFolderRow(
           }
         }
       }
-
-      HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-        thickness = 0.8.dp,
-      )
     }
 
     DropdownMenu(

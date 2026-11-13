@@ -148,6 +148,7 @@ fun HomeScreen(
   onLaunchShortcut: (AppShortcutItem) -> Unit = {},
   onAutoCategorizeFolders: () -> Unit = {},
   onSaveQuickScratchpad: (String) -> Unit = {},
+  isDrawerOpen: Boolean = false,
 ) {
   val context = LocalContext.current
   val lifecycleOwner = LocalLifecycleOwner.current
@@ -334,7 +335,7 @@ fun HomeScreen(
         wallpaperDimPercent = uiState.settings.wallpaperDimPercent,
       )
 
-      if (uiState.settings.coastalBackdropEnabled) {
+      if (uiState.settings.coastalBackdropEnabled && !isDrawerOpen) {
         HeroWeatherAnimationLayer(
           weather = uiState.weather,
           coastalPalette = coastalPalette,
@@ -354,14 +355,15 @@ fun HomeScreen(
       }
     }
 
-    BoxWithConstraints(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .statusBarsPadding()
-          .navigationBarsPadding(),
-      contentAlignment = Alignment.TopCenter,
-    ) {
+    if (!isDrawerOpen) {
+      BoxWithConstraints(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        contentAlignment = Alignment.TopCenter,
+      ) {
       val isTwoPaneTablet = maxWidth >= 700.dp
 
       if (isTwoPaneTablet) {
@@ -545,6 +547,7 @@ fun HomeScreen(
             horizontalPadding = 20.dp,
           )
         }
+      }
       }
     }
   }
@@ -966,7 +969,7 @@ private fun HomeFavoritesPane(
                 hapticEnabled = hapticsEnabled,
                 showDailyLaunchCount = uiState.settings.showDailyLaunchCounts,
                 onTap = { onLaunchApp(app) },
-                showDivider = index < uiState.favoriteApps.lastIndex,
+                showDivider = false,
               ) { dismiss ->
                 MinimalDropdownItem(
                   text = stringResource(R.string.app_info),

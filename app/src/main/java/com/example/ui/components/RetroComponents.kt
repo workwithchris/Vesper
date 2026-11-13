@@ -159,7 +159,7 @@ fun AppListRow(
   iconSize: Dp = 38.dp,
   verticalPadding: Dp = 6.dp,
   horizontalGap: Dp = 12.dp,
-  showDivider: Boolean = true,
+  showDivider: Boolean = false,
   showDailyLaunchCount: Boolean = false,
   adaptiveShape: AdaptiveIconShape = LocalAdaptiveIconShape.current,
   menuContent: @Composable (dismiss: () -> Unit) -> Unit,

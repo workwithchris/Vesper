@@ -226,6 +226,7 @@ private fun LauncherAppRoot(
             onLaunchShortcut = viewModel::launchShortcut,
             onAutoCategorizeFolders = { viewModel.autoCategorizeFolders() },
             onSaveQuickScratchpad = viewModel::setQuickScratchpadText,
+            isDrawerOpen = destination == LauncherDestination.ALL_APPS,
           )
 
           AppDrawer(
