@@ -197,6 +197,38 @@ data class MindfulInsights(
   val topLaunchedApps: List<Pair<AppInfo, Int>> = emptyList(),
 )
 
+enum class StickyNoteColor(
+  val label: String,
+  val tintColor: Color,
+) {
+  AMBER("Amber", Color(0xFFFFB26B)),
+  EMERALD("Mint", Color(0xFF3AD18D)),
+  CYAN("Sky", Color(0xFF4FB3FF)),
+  CORAL("Coral", Color(0xFFFF6B6B)),
+  VIOLET("Iris", Color(0xFF9B5DE5));
+
+  companion object {
+    fun fromName(name: String?): StickyNoteColor =
+      entries.firstOrNull { it.name == name } ?: AMBER
+  }
+}
+
+@Immutable
+data class StickyNoteItem(
+  val id: String,
+  val text: String,
+  val color: StickyNoteColor = StickyNoteColor.AMBER,
+  val isPinned: Boolean = false,
+  val updatedAtMillis: Long = 0L,
+)
+
+@Immutable
+data class DailyTaskItem(
+  val id: String,
+  val title: String,
+  val isDone: Boolean = false,
+)
+
 @Immutable
 data class LauncherSettings(
   val themeMode: ThemeMode = ThemeMode.DARK,
@@ -243,6 +275,8 @@ data class LauncherSettings(
   val leftHandedScrubber: Boolean = false,
   val lockHiddenApps: Boolean = false,
   val quickScratchpadText: String = "",
+  val stickyNotes: List<StickyNoteItem> = emptyList(),
+  val dailyTasks: List<DailyTaskItem> = emptyList(),
 )
 
 @Immutable
