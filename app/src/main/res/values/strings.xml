@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Vesper</string>
+    <string name="search_apps_hint">Search apps</string>
+    <string name="find_app_hint">Find an app</string>
+    <string name="all_apps_title">All apps</string>
+    <string name="favorites_header">FAVORITES</string>
+    <string name="settings_title">Settings</string>
+    <string name="app_info">App Info</string>
+    <string name="remove_from_favorites">Remove from favorites</string>
+    <string name="add_to_favorites">Add to favorites</string>
+    <string name="no_apps_found">No matching apps found</string>
+    <string name="weather_temp">24°</string>
+    <string name="weather_condition">Mostly clear</string>
+    <string name="notification_listener_label">Vesper Notification Dots</string>
+    <string name="rename_app">Rename app</string>
+    <string name="hide_app">Hide from drawer</string>
+    <string name="mindful_pause_add">Add mindful pause</string>
+    <string name="mindful_pause_remove">Remove mindful pause</string>
+    <string name="focus_active_badge">Focus active</string>
+    <string name="folders_header">FOLDERS</string>
+    <string name="create_folder">Create folder</string>
+    <string name="replay_welcome">Replay welcome setup</string>
+</resources>

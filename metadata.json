@@ -1,0 +1,8 @@
+{
+  "name": "Vesper",
+  "description": "A minimalist Android home launcher with a Vercel-inspired Geist design system, synthwave digital clock, adaptive monochrome app outlines, expandable folders, live weather & coastal ambiance, Focus Mode schedules, and JSON backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
