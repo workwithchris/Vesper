@@ -3,8 +3,10 @@ package com.example.ui.settings
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,8 +31,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.BatteryFull
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.BrightnessMedium
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CreateNewFolder
@@ -39,6 +44,7 @@ import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.QueryStats
@@ -46,10 +52,12 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.SlowMotionVideo
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.Water
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.AlertDialog
@@ -60,6 +68,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -84,6 +94,7 @@ import com.example.model.AccentOption
 import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
 import com.example.model.AppInfo
+import com.example.model.ClockStyle
 import com.example.model.HomeGestureAction
 import com.example.model.LauncherUiState
 import com.example.model.ScrollSpeed
@@ -140,6 +151,14 @@ fun SettingsScreen(
   onExportBackupJson: () -> String = { "" },
   onImportBackupJson: suspend (String) -> Boolean = { false },
   modifier: Modifier = Modifier,
+  onSelectClockStyle: (ClockStyle) -> Unit = {},
+  onToggleClockSeconds: (Boolean) -> Unit = {},
+  onToggleBatteryIndicator: (Boolean) -> Unit = {},
+  onPickCustomWallpaper: (Uri) -> Unit = {},
+  onClearCustomWallpaper: () -> Unit = {},
+  onChangeWallpaperDimPercent: (Int) -> Unit = {},
+  onToggleWidgetStack: (Boolean) -> Unit = {},
+  onAutoCategorizeFolders: ((Int) -> Unit) -> Unit = {},
 ) {
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
@@ -154,6 +173,8 @@ fun SettingsScreen(
   }
 
   var showThemeDialog by remember { mutableStateOf(false) }
+  var showClockStyleDialog by remember { mutableStateOf(false) }
+  var showWallpaperOptionsDialog by remember { mutableStateOf(false) }
   var showIconShapeDialog by remember { mutableStateOf(false) }
   var showCityPickerDialog by remember { mutableStateOf(false) }
   var showFavoritesDialog by remember { mutableStateOf(false) }
@@ -169,6 +190,14 @@ fun SettingsScreen(
   var showScrollSpeedDialog by remember { mutableStateOf(false) }
   var showBackupDialog by remember { mutableStateOf(false) }
   var showAboutDialog by remember { mutableStateOf(false) }
+
+  val wallpaperPickerLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+      if (uri != null) {
+        onPickCustomWallpaper(uri)
+        scope.launch { snackbarHostState.showSnackbar("Custom wallpaper applied") }
+      }
+    }
 
   val calendarPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -317,6 +346,32 @@ fun SettingsScreen(
           testTag = "settings_icon_shape_row",
         )
 
+        SettingsValueRow(
+          icon = Icons.Outlined.Style,
+          title = "Clock style",
+          value = settings.clockStyle.label,
+          onClick = { showClockStyleDialog = true },
+          testTag = "settings_clock_style_row",
+        )
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.AccessTime,
+          title = "Show clock seconds",
+          checked = settings.showClockSeconds,
+          onCheckedChange = onToggleClockSeconds,
+          accentColor = accentColor,
+          testTag = "clock_seconds_switch",
+        )
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.BatteryFull,
+          title = "Battery badge on clock",
+          checked = settings.showBatteryIndicator,
+          onCheckedChange = onToggleBatteryIndicator,
+          accentColor = accentColor,
+          testTag = "battery_indicator_switch",
+        )
+
         SettingsToggleRow(
           icon = Icons.Outlined.Water,
           title = "Coastal atmosphere",
@@ -325,6 +380,59 @@ fun SettingsScreen(
           accentColor = accentColor,
           testTag = "coastal_backdrop_switch",
         )
+
+        val hasCustomWallpaper = !settings.customWallpaperPath.isNullOrBlank()
+        SettingsValueRow(
+          icon = Icons.Outlined.Wallpaper,
+          title = "Backdrop wallpaper",
+          value = if (hasCustomWallpaper) "Custom photo" else "Miami sunset",
+          onClick = {
+            if (hasCustomWallpaper) {
+              showWallpaperOptionsDialog = true
+            } else {
+              wallpaperPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
+            }
+          },
+          testTag = "settings_wallpaper_row",
+        )
+
+        if (hasCustomWallpaper) {
+          Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                imageVector = Icons.Outlined.BrightnessMedium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+              )
+              Spacer(modifier = Modifier.width(16.dp))
+              Text(
+                text = "Wallpaper dim",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+              )
+              Text(
+                text = "${settings.wallpaperDimPercent}%",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Slider(
+              value = settings.wallpaperDimPercent.toFloat(),
+              onValueChange = { onChangeWallpaperDimPercent(it.toInt()) },
+              valueRange = 20f..85f,
+              colors =
+                SliderDefaults.colors(
+                  thumbColor = accentColor,
+                  activeTrackColor = accentColor,
+                ),
+              modifier = Modifier.fillMaxWidth().padding(start = 38.dp).testTag("wallpaper_dim_slider"),
+            )
+          }
+        }
 
         SettingsValueRow(
           icon = Icons.Outlined.LocationOn,
@@ -364,11 +472,35 @@ fun SettingsScreen(
         )
 
         SettingsValueRow(
+          icon = Icons.Outlined.Category,
+          title = "Auto-group by usage",
+          value = "Smart folders",
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+            onAutoCategorizeFolders { count ->
+              scope.launch {
+                snackbarHostState.showSnackbar("Grouped apps into $count smart folders by usage")
+              }
+            }
+          },
+          testTag = "settings_auto_categorize_folders_row",
+        )
+
+        SettingsValueRow(
           icon = Icons.Outlined.VisibilityOff,
           title = "Hidden apps",
           value = if (uiState.hiddenApps.isEmpty()) "None" else "${uiState.hiddenApps.size} hidden",
           onClick = { showHiddenAppsDialog = true },
           testTag = "settings_hidden_apps_row",
+        )
+
+        SettingsToggleRow(
+          icon = Icons.Outlined.Layers,
+          title = "Compact widget stack",
+          checked = settings.widgetStackEnabled,
+          onCheckedChange = onToggleWidgetStack,
+          accentColor = accentColor,
+          testTag = "widget_stack_switch",
         )
 
         SettingsToggleRow(
@@ -594,6 +726,65 @@ fun SettingsScreen(
         showIconShapeDialog = false
       },
       onDismiss = { showIconShapeDialog = false },
+    )
+  }
+
+  if (showClockStyleDialog) {
+    RadioOptionDialog(
+      title = "Clock style",
+      options = ClockStyle.entries,
+      selected = settings.clockStyle,
+      labelFor = { it.label },
+      onSelect = {
+        onSelectClockStyle(it)
+        showClockStyleDialog = false
+      },
+      onDismiss = { showClockStyleDialog = false },
+    )
+  }
+
+  if (showWallpaperOptionsDialog) {
+    AlertDialog(
+      onDismissRequest = { showWallpaperOptionsDialog = false },
+      shape = RoundedCornerShape(12.dp),
+      containerColor = MaterialTheme.colorScheme.surface,
+      title = { Text("Backdrop wallpaper") },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Text(
+            text = "Choose another photo from your library or restore the built-in Miami sunset artwork.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Button(
+            onClick = {
+              showWallpaperOptionsDialog = false
+              wallpaperPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text("Pick another photo")
+          }
+          OutlinedButton(
+            onClick = {
+              showWallpaperOptionsDialog = false
+              onClearCustomWallpaper()
+            },
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text("Reset to Miami sunset")
+          }
+        }
+      },
+      confirmButton = {},
+      dismissButton = {
+        TextButton(onClick = { showWallpaperOptionsDialog = false }) { Text("Close") }
+      },
     )
   }
 

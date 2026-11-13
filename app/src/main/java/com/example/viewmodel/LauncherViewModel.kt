@@ -2,6 +2,7 @@ package com.example.viewmodel
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppRepository
@@ -16,6 +17,8 @@ import com.example.model.AppFolder
 import com.example.model.AppInfo
 import com.example.model.AppShortcutItem
 import com.example.model.CalendarEventPreview
+import com.example.model.ClockStyle
+import com.example.model.DrawerProfileFilter
 import com.example.model.HomeGestureAction
 import com.example.model.LauncherUiState
 import com.example.model.MindfulInsights
@@ -26,6 +29,7 @@ import com.example.model.WeatherInfo
 import com.example.model.WeatherLocation
 import com.example.util.FocusAndSearchUtils
 import com.example.util.MathEvaluator
+import com.example.util.SmartFolderCategorizer
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,6 +58,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
   private val shortcutsFlow = MutableStateFlow<List<AppShortcutItem>>(emptyList())
   private val isDefaultLauncherFlow = MutableStateFlow(appRepository.isDefaultHomeLauncher())
   private val clockPulseFlow = MutableStateFlow(System.currentTimeMillis())
+  private val drawerProfileFilterFlow = MutableStateFlow(DrawerProfileFilter.ALL)
 
   private data class CoreSnapshot(
     val rawApps: List<AppInfo>,
@@ -75,6 +80,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val shortcuts: List<AppShortcutItem>,
     val isDefaultHome: Boolean,
     val nowMillis: Long,
+    val profileFilter: DrawerProfileFilter,
   )
 
   private val coreStateFlow =
@@ -104,8 +110,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
       shortcutsFlow,
       isDefaultLauncherFlow,
       clockPulseFlow,
-    ) { pendingMindful, shortcuts, isDefaultHome, nowMillis ->
-      TransientSnapshot(pendingMindful, shortcuts, isDefaultHome, nowMillis)
+      drawerProfileFilterFlow,
+    ) { pendingMindful, shortcuts, isDefaultHome, nowMillis, profileFilter ->
+      TransientSnapshot(pendingMindful, shortcuts, isDefaultHome, nowMillis, profileFilter)
     }
 
   val uiState: StateFlow<LauncherUiState> =
@@ -153,9 +160,39 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
 
       val resolvedFolders =
-        settings.folders.mapNotNull { folder ->
-          val apps = folder.componentKeys.mapNotNull { visibleByKey[it] }
-          if (apps.isEmpty()) null else ResolvedFolder(folder = folder, apps = apps)
+        settings.folders
+          .mapNotNull { folder ->
+            val rawFolderApps = folder.componentKeys.mapNotNull { visibleByKey[it] }
+            if (rawFolderApps.isEmpty()) {
+              null
+            } else {
+              val sortedApps =
+                if (SmartFolderCategorizer.isSmartFolder(folder)) {
+                  SmartFolderCategorizer.sortAppsByUsage(rawFolderApps)
+                } else {
+                  rawFolderApps.sortedByDescending { it.dailyLaunchCount }
+                }
+              ResolvedFolder(folder = folder, apps = sortedApps)
+            }
+          }
+          .let { folders ->
+            val (smart, custom) =
+              folders.partition { SmartFolderCategorizer.isSmartFolder(it.folder) }
+            val sortedSmart =
+              smart.sortedByDescending { resolved ->
+                resolved.apps.sumOf { it.dailyLaunchCount }
+              }
+            sortedSmart + custom
+          }
+
+      val hasWorkApps = visibleApps.any { it.isWorkProfile }
+      val effectiveProfileFilter =
+        if (hasWorkApps) trans.profileFilter else DrawerProfileFilter.ALL
+      val profileFilteredApps =
+        when (effectiveProfileFilter) {
+          DrawerProfileFilter.ALL -> visibleApps
+          DrawerProfileFilter.PERSONAL -> visibleApps.filter { !it.isWorkProfile }
+          DrawerProfileFilter.WORK -> visibleApps.filter { it.isWorkProfile }
         }
 
       val trimmedQuery = core.query.trim()
@@ -163,14 +200,29 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
       val quickAction = FocusAndSearchUtils.detectDrawerQuickAction(trimmedQuery)
       val filteredDrawerApps =
         if (trimmedQuery.isEmpty()) {
-          visibleApps
+          profileFilteredApps
         } else {
-          visibleApps.filter {
+          profileFilteredApps.filter {
             it.label.contains(trimmedQuery, ignoreCase = true) ||
               it.originalLabel.contains(trimmedQuery, ignoreCase = true) ||
               it.packageName.contains(trimmedQuery, ignoreCase = true)
           }
         }
+
+      val frequentDrawerApps =
+        if (trimmedQuery.isNotEmpty()) {
+          emptyList()
+        } else {
+          profileFilteredApps
+            .filter { it.dailyLaunchCount > 0 }
+            .sortedByDescending { it.dailyLaunchCount }
+            .take(4)
+        }
+
+      val shortcutsByPackage =
+        trans.shortcuts
+          .groupBy { it.packageName }
+          .mapValues { (_, items) -> items.take(3) }
 
       val matchedShortcuts =
         if (trimmedQuery.length < 2) {
@@ -235,6 +287,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         isFocusModeActive = focusActive,
         isDefaultHomeLauncher = trans.isDefaultHome,
         mindfulInsights = insights,
+        drawerProfileFilter = effectiveProfileFilter,
+        hasWorkProfileApps = hasWorkApps,
+        frequentDrawerApps = frequentDrawerApps,
+        appShortcutsByPackage = shortcutsByPackage,
       )
     }
       .stateIn(
@@ -369,6 +425,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             activityName = entry.activityName,
             icon = entry.cachedIcon,
             isAdaptiveIcon = entry.isAdaptiveIcon,
+            isWorkProfile = entry.isWorkProfile,
+            userSerialNumber = entry.userSerialNumber,
+            appCategory = entry.appCategory,
           )
         }
       installedAppsFlow.value = initialApps
@@ -510,6 +569,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
   }
 
+  fun moveFavoriteApp(app: AppInfo, delta: Int) {
+    viewModelScope.launch {
+      val currentSettings = settingsRepository.settingsFlow.first()
+      val currentKeys =
+        if (currentSettings.favoriteComponentKeys.isEmpty()) {
+          appRepository.resolveDefaultFavorites(uiState.value.allVisibleApps).map { it.componentKey }
+        } else {
+          currentSettings.favoriteComponentKeys
+        }
+      val idx = currentKeys.indexOf(app.componentKey)
+      if (idx < 0) return@launch
+      val target = (idx + delta).coerceIn(0, currentKeys.lastIndex)
+      if (target == idx) return@launch
+      val mutable = currentKeys.toMutableList()
+      val moved = mutable.removeAt(idx)
+      mutable.add(target, moved)
+      settingsRepository.setFavorites(mutable)
+    }
+  }
+
+  fun setDrawerProfileFilter(filter: DrawerProfileFilter) {
+    drawerProfileFilterFlow.value = filter
+  }
+
   fun saveFolder(existingId: String?, name: String, apps: List<AppInfo>) {
     val cleanName = name.trim()
     if (cleanName.isEmpty() || apps.isEmpty()) return
@@ -523,6 +606,21 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   fun deleteFolder(folderId: String) {
     viewModelScope.launch { settingsRepository.deleteFolder(folderId) }
+  }
+
+  fun autoCategorizeFolders(onResult: (Int) -> Unit = {}) {
+    viewModelScope.launch {
+      val visibleApps = uiState.value.allVisibleApps
+      val existingFolders = settingsRepository.settingsFlow.first().folders
+      val merged =
+        SmartFolderCategorizer.generateSmartFolders(
+          apps = visibleApps,
+          existingFolders = existingFolders,
+        )
+      settingsRepository.replaceFolders(merged)
+      val smartCount = merged.count { SmartFolderCategorizer.isSmartFolder(it) }
+      onResult(smartCount)
+    }
   }
 
   fun hideApp(app: AppInfo) {
@@ -668,9 +766,51 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
   suspend fun importSettingsBackupJson(json: String): Boolean =
     settingsRepository.importSettingsBackup(json)
 
+  fun setClockStyle(style: ClockStyle) {
+    viewModelScope.launch { settingsRepository.setClockStyle(style) }
+  }
+
+  fun setShowClockSeconds(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setShowClockSeconds(enabled) }
+  }
+
+  fun setShowBatteryIndicator(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setShowBatteryIndicator(enabled) }
+  }
+
+  fun pickCustomWallpaper(uri: Uri) {
+    viewModelScope.launch {
+      val savedPath = appRepository.importCustomWallpaper(uri)
+      if (savedPath != null) {
+        settingsRepository.setCustomWallpaperPath(savedPath)
+      }
+    }
+  }
+
+  fun clearCustomWallpaper() {
+    viewModelScope.launch {
+      val existing = uiState.value.settings.customWallpaperPath
+      appRepository.clearCustomWallpaper(existing)
+      settingsRepository.setCustomWallpaperPath(null)
+    }
+  }
+
+  fun setWallpaperDimPercent(percent: Int) {
+    viewModelScope.launch { settingsRepository.setWallpaperDimPercent(percent) }
+  }
+
+  fun setDailyIntention(intention: String) {
+    viewModelScope.launch { settingsRepository.setDailyIntention(intention) }
+  }
+
+  fun setWidgetStackEnabled(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setWidgetStackEnabled(enabled) }
+  }
+
   fun resetLayout() {
     viewModelScope.launch {
       selectedAppKeyFlow.value = null
+      appRepository.clearCustomWallpaper(uiState.value.settings.customWallpaperPath)
       settingsRepository.resetLayout()
     }
   }

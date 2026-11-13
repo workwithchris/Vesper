@@ -1,48 +1,79 @@
 package com.example.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.SelfImprovement
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.AppInfo
+import com.example.model.AppShortcutItem
 import com.example.model.ResolvedFolder
 import com.example.ui.components.AppListRow
 import com.example.ui.components.MinimalDropdownItem
@@ -59,6 +91,7 @@ import com.example.ui.theme.GeistMonoNumericStyle
 import com.example.ui.theme.LocalAdaptiveIconShape
 import com.example.ui.theme.LocalLauncherIsDark
 import com.example.util.LauncherHapticEvent
+import com.example.util.SmartFolderCategorizer
 import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.delay
 
@@ -213,12 +246,74 @@ fun HomeFolderRow(
   onToggleMindfulPause: (AppInfo) -> Unit,
   onEditFolder: () -> Unit,
   onDeleteFolder: () -> Unit,
+  shortcutsByPackage: Map<String, List<AppShortcutItem>> = emptyMap(),
+  onLaunchShortcut: (AppShortcutItem) -> Unit = {},
 ) {
   var menuExpanded by remember { mutableStateOf(false) }
   val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
   val iconShape = LocalAdaptiveIconShape.current.toComposeShape()
   val isDark = LocalLauncherIsDark.current
-  val iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.92f else 0.88f)
+  val accentColor = MaterialTheme.colorScheme.primary
+  val iconTint =
+    if (expanded) accentColor
+    else MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.92f else 0.88f)
+
+  val chevronRotation by
+    animateFloatAsState(
+      targetValue = if (expanded) 90f else 0f,
+      animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
+      label = "folder_chevron_rotation",
+    )
+
+  val totalFolderLaunches = remember(resolvedFolder.apps) {
+    resolvedFolder.apps.sumOf { it.dailyLaunchCount }
+  }
+  val isSmartAutoFolder = remember(resolvedFolder.folder.id) {
+    SmartFolderCategorizer.isSmartFolder(resolvedFolder.folder)
+  }
+
+  val baseSurface = MaterialTheme.colorScheme.surface
+  val baseOutline = MaterialTheme.colorScheme.outline
+
+  val glassSurfaceBrush =
+    remember(isDark, accentColor, baseSurface) {
+      Brush.verticalGradient(
+        colors =
+          if (isDark) {
+            listOf(
+              Color.White.copy(alpha = 0.08f),
+              baseSurface.copy(alpha = 0.64f),
+              accentColor.copy(alpha = 0.07f),
+            )
+          } else {
+            listOf(
+              Color.White.copy(alpha = 0.82f),
+              baseSurface.copy(alpha = 0.72f),
+              accentColor.copy(alpha = 0.06f),
+            )
+          }
+      )
+    }
+
+  val glassBorderBrush =
+    remember(isDark, accentColor, baseOutline) {
+      Brush.linearGradient(
+        colors =
+          if (isDark) {
+            listOf(
+              Color.White.copy(alpha = 0.24f),
+              accentColor.copy(alpha = 0.32f),
+              baseOutline.copy(alpha = 0.45f),
+            )
+          } else {
+            listOf(
+              Color.White.copy(alpha = 0.85f),
+              accentColor.copy(alpha = 0.28f),
+              baseOutline.copy(alpha = 0.55f),
+            )
+          }
+      )
+    }
 
   Box(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -245,16 +340,14 @@ fun HomeFolderRow(
           modifier =
             Modifier
               .size(42.dp)
-              .clip(iconShape)
-              .background(MaterialTheme.colorScheme.surface)
-              .border(1.dp, MaterialTheme.colorScheme.outline, iconShape),
+              .clip(iconShape),
           contentAlignment = Alignment.Center,
         ) {
           Icon(
             imageVector = if (expanded) Icons.Outlined.FolderOpen else Icons.Outlined.Folder,
             contentDescription = resolvedFolder.folder.name,
             tint = iconTint,
-            modifier = Modifier.size(21.dp),
+            modifier = Modifier.size(24.dp),
           )
         }
 
@@ -268,6 +361,13 @@ fun HomeFolderRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
           )
+          if (isSmartAutoFolder && totalFolderLaunches > 0) {
+            Text(
+              text = "${totalFolderLaunches}× · ",
+              style = GeistMonoNumericStyle,
+              color = accentColor.copy(alpha = 0.85f),
+            )
+          }
           Text(
             text = "${resolvedFolder.apps.size}",
             style = GeistMonoNumericStyle,
@@ -275,22 +375,56 @@ fun HomeFolderRow(
           )
           Spacer(modifier = Modifier.width(4.dp))
           Icon(
-            imageVector =
-              if (expanded) Icons.Outlined.KeyboardArrowDown
-              else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = if (expanded) "Collapse folder" else "Expand folder",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            tint = if (expanded) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier =
+              Modifier
+                .size(18.dp)
+                .graphicsLayer { rotationZ = chevronRotation },
           )
         }
       }
 
-      if (expanded) {
+      AnimatedVisibility(
+        visible = expanded,
+        enter =
+          expandVertically(
+            animationSpec =
+              spring(
+                dampingRatio = 0.82f,
+                stiffness = Spring.StiffnessMediumLow,
+              ),
+            expandFrom = Alignment.Top,
+          ) +
+            fadeIn(animationSpec = tween(durationMillis = 220)) +
+            scaleIn(
+              initialScale = 0.96f,
+              transformOrigin = TransformOrigin(0.5f, 0f),
+              animationSpec = tween(durationMillis = 220),
+            ),
+        exit =
+          shrinkVertically(
+            animationSpec = tween(durationMillis = 180),
+            shrinkTowards = Alignment.Top,
+          ) +
+            fadeOut(animationSpec = tween(durationMillis = 150)) +
+            scaleOut(
+              targetScale = 0.96f,
+              transformOrigin = TransformOrigin(0.5f, 0f),
+              animationSpec = tween(durationMillis = 180),
+            ),
+      ) {
+        val glassShape = RoundedCornerShape(14.dp)
         Column(
           modifier =
             Modifier
               .fillMaxWidth()
-              .padding(start = 18.dp, bottom = 6.dp)
+              .padding(start = 8.dp, end = 2.dp, top = 2.dp, bottom = 10.dp)
+              .clip(glassShape)
+              .background(brush = glassSurfaceBrush, shape = glassShape)
+              .border(width = 1.dp, brush = glassBorderBrush, shape = glassShape)
+              .padding(horizontal = 12.dp, vertical = 4.dp)
               .testTag("folder_expanded_${resolvedFolder.folder.name}"),
         ) {
           resolvedFolder.apps.forEachIndexed { idx, app ->
@@ -333,6 +467,23 @@ fun HomeFolderRow(
                   onRenameApp(app)
                 },
               )
+              shortcutsByPackage[app.packageName].orEmpty().take(3).forEach { shortcut ->
+                MinimalDropdownItem(
+                  text = shortcut.shortLabel,
+                  icon = {
+                    Icon(
+                      Icons.Outlined.Bolt,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.primary,
+                    )
+                  },
+                  onClick = {
+                    launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                    dismiss()
+                    onLaunchShortcut(shortcut)
+                  },
+                )
+              }
               MinimalDropdownItem(
                 text =
                   stringResource(
@@ -396,3 +547,218 @@ fun HomeFolderRow(
     }
   }
 }
+
+@Composable
+fun DailyIntentionPill(
+  intention: String,
+  hapticEnabled: Boolean = true,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
+  val hasIntention = intention.isNotBlank()
+  Surface(
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+      onClick()
+    },
+    shape = RoundedCornerShape(8.dp),
+    color = MaterialTheme.colorScheme.surface.copy(alpha = if (hasIntention) 0.90f else 0.72f),
+    border =
+      BorderStroke(
+        width = 1.dp,
+        color =
+          if (hasIntention) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+          else MaterialTheme.colorScheme.outline,
+      ),
+    modifier = modifier.fillMaxWidth().testTag("daily_intention_pill"),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Icon(
+        imageVector = Icons.Outlined.TaskAlt,
+        contentDescription = "Today's focus intention",
+        tint =
+          if (hasIntention) MaterialTheme.colorScheme.primary
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(14.dp),
+      )
+      Spacer(modifier = Modifier.width(8.dp))
+      Text(
+        text = if (hasIntention) intention else "Set today's intention...",
+        style = MaterialTheme.typography.bodyMedium,
+        color =
+          if (hasIntention) MaterialTheme.colorScheme.onBackground
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+      )
+    }
+  }
+}
+
+@Composable
+fun DailyIntentionDialog(
+  currentIntention: String,
+  onSave: (String) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  var text by remember(currentIntention) { mutableStateOf(currentIntention) }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    shape = RoundedCornerShape(12.dp),
+    containerColor = MaterialTheme.colorScheme.surface,
+    title = { Text("Today's intention") },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+          text = "Keep one quiet daily priority anchored at the top of your home screen.",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+          value = text,
+          onValueChange = { if (it.length <= 80) text = it },
+          singleLine = true,
+          placeholder = { Text("e.g. Ship v1.1 release cleanly") },
+          colors =
+            OutlinedTextFieldDefaults.colors(
+              focusedBorderColor = MaterialTheme.colorScheme.primary,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            ),
+          modifier = Modifier.fillMaxWidth().testTag("daily_intention_input"),
+        )
+      }
+    },
+    confirmButton = {
+      TextButton(
+        onClick = { onSave(text.trim()) },
+        modifier = Modifier.testTag("daily_intention_save_button"),
+      ) {
+        Text("Save")
+      }
+    },
+    dismissButton = {
+      Row {
+        if (currentIntention.isNotBlank()) {
+          TextButton(
+            onClick = { onSave("") },
+            modifier = Modifier.testTag("daily_intention_clear_button"),
+          ) {
+            Text("Clear", color = DangerRed)
+          }
+        }
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+      }
+    },
+    modifier = Modifier.testTag("daily_intention_dialog"),
+  )
+}
+
+@Composable
+fun GeistWidgetStack(
+  slots: List<@Composable () -> Unit>,
+  hapticEnabled: Boolean = true,
+  reducedMotion: Boolean = false,
+  modifier: Modifier = Modifier,
+) {
+  if (slots.isEmpty()) return
+  val launcherHaptics = rememberLauncherHaptics(hapticEnabled)
+  var activeIndex by rememberSaveable { mutableIntStateOf(0) }
+  var swipeDirection by remember { mutableIntStateOf(1) }
+  val safeIndex = activeIndex.coerceIn(0, slots.lastIndex)
+
+  fun stepWidget(delta: Int) {
+    if (slots.size <= 1) return
+    swipeDirection = if (delta >= 0) 1 else -1
+    activeIndex = (safeIndex + delta + slots.size) % slots.size
+    launcherHaptics.trigger(LauncherHapticEvent.SCRUBBER_TICK)
+  }
+
+  Row(
+    modifier =
+      modifier
+        .fillMaxWidth()
+        .pointerInput(slots.size, safeIndex, launcherHaptics) {
+          var dragY = 0f
+          var switchedInGesture = false
+          detectVerticalDragGestures(
+            onDragStart = {
+              dragY = 0f
+              switchedInGesture = false
+            },
+            onVerticalDrag = { change, delta ->
+              change.consume()
+              if (switchedInGesture || slots.size <= 1) return@detectVerticalDragGestures
+              dragY += delta
+              if (dragY < -28f) {
+                switchedInGesture = true
+                stepWidget(+1)
+              } else if (dragY > 28f) {
+                switchedInGesture = true
+                stepWidget(-1)
+              }
+            },
+          )
+        }
+        .testTag("home_widget_stack"),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Box(modifier = Modifier.weight(1f)) {
+      if (reducedMotion) {
+        slots[safeIndex]()
+      } else {
+        AnimatedContent(
+          targetState = safeIndex,
+          transitionSpec = {
+            if (swipeDirection >= 0) {
+              (slideInVertically(tween(180)) { height -> height } + fadeIn(tween(180)))
+                .togetherWith(slideOutVertically(tween(180)) { height -> -height } + fadeOut(tween(150)))
+            } else {
+              (slideInVertically(tween(180)) { height -> -height } + fadeIn(tween(180)))
+                .togetherWith(slideOutVertically(tween(180)) { height -> height } + fadeOut(tween(150)))
+            }
+          },
+          label = "geist_widget_stack",
+        ) { targetIdx ->
+          slots[targetIdx.coerceIn(0, slots.lastIndex)]()
+        }
+      }
+    }
+
+    if (slots.size > 1) {
+      Spacer(modifier = Modifier.width(10.dp))
+      Column(
+        modifier =
+          Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { stepWidget(+1) }
+            .padding(horizontal = 4.dp, vertical = 6.dp)
+            .testTag("widget_stack_indicator"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        for (idx in slots.indices) {
+          val selected = idx == safeIndex
+          Box(
+            modifier =
+              Modifier
+                .width(3.dp)
+                .height(if (selected) 12.dp else 4.dp)
+                .clip(CircleShape)
+                .background(
+                  if (selected) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.outlineVariant
+                )
+                .testTag("widget_stack_dot_$idx")
+          )
+        }
+      }
+    }
+  }
+}
+
+

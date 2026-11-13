@@ -1,5 +1,6 @@
 package com.example.ui.home
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -14,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -21,12 +23,17 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.R
 import com.example.ui.theme.CoastalDawnHorizon
 import com.example.ui.theme.CoastalDawnSky
@@ -118,11 +125,28 @@ fun CoastalGradientOverlay(
   hourOfDay: Float,
   reducedMotion: Boolean = false,
   parallaxState: GyroscopeParallaxState? = null,
+  customWallpaperPath: String? = null,
+  wallpaperDimPercent: Int = 55,
   modifier: Modifier = Modifier,
 ) {
   val isDark = LocalLauncherIsDark.current
   val bgCanvasColor = MaterialTheme.colorScheme.background
   val targetPalette = remember(hourOfDay) { resolveMiamiCoastalPalette(hourOfDay) }
+
+  val customWallpaperBitmap by
+    produceState<ImageBitmap?>(initialValue = null, key1 = customWallpaperPath) {
+      value =
+        if (customWallpaperPath.isNullOrBlank()) {
+          null
+        } else {
+          withContext(Dispatchers.IO) {
+            runCatching {
+              val f = File(customWallpaperPath)
+              if (f.exists()) BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() else null
+            }.getOrNull()
+          }
+        }
+    }
 
   val upperColor by
     animateColorAsState(
@@ -183,36 +207,54 @@ fun CoastalGradientOverlay(
   }
 
   Box(modifier = modifier.fillMaxSize().clipToBounds().testTag("coastal_gradient_overlay")) {
-    // Far depth plane: sunset illustration pre-scaled 1.14x so GPU tilt shifts never expose edges
-    Image(
-      painter = painterResource(id = R.drawable.img_miami_sunset_hero_1794549247807),
-      contentDescription = null,
-      contentScale = ContentScale.Crop,
-      alpha = if (isDark) 0.30f else 0.18f,
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .graphicsLayer {
-            val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
-            val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
-            scaleX = 1.14f
-            scaleY = 1.14f
-            translationX = tiltX * 16.dp.toPx()
-            translationY = tiltY * 14.dp.toPx()
-          }
-          .testTag("sunset_parallax_illustration"),
-    )
+    val parallaxModifier =
+      Modifier
+        .fillMaxSize()
+        .graphicsLayer {
+          val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
+          val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
+          scaleX = 1.14f
+          scaleY = 1.14f
+          translationX = tiltX * 16.dp.toPx()
+          translationY = tiltY * 14.dp.toPx()
+        }
+        .testTag("sunset_parallax_illustration")
 
-    // Smooth vertical vignette + diagonal atmospheric wash over the sunset illustration
+    val customBmp = customWallpaperBitmap
+    if (customBmp != null) {
+      Image(
+        bitmap = customBmp,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alpha = ((100 - wallpaperDimPercent).coerceIn(15, 80) / 100f),
+        modifier = parallaxModifier,
+      )
+    } else {
+      Image(
+        painter = painterResource(id = R.drawable.img_miami_sunset_hero_1794549247807),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alpha = if (isDark) 0.30f else 0.18f,
+        modifier = parallaxModifier,
+      )
+    }
+
+    // Smooth vertical vignette + diagonal atmospheric wash over the backdrop
+    val customDimFactor =
+      if (customBmp != null) (wallpaperDimPercent.coerceIn(20, 85) / 100f) else null
     Box(
       modifier =
         Modifier
           .fillMaxSize()
           .drawWithCache {
+            val topScrimAlpha = customDimFactor ?: if (isDark) 0.56f else 0.64f
+            val midScrimAlpha =
+              if (customDimFactor != null) (customDimFactor * 0.85f).coerceIn(0.18f, 0.85f)
+              else if (isDark) 0.42f else 0.55f
             val scrimBrush =
               Brush.verticalGradient(
-                0.0f to bgCanvasColor.copy(alpha = if (isDark) 0.56f else 0.64f),
-                0.35f to bgCanvasColor.copy(alpha = if (isDark) 0.42f else 0.55f),
+                0.0f to bgCanvasColor.copy(alpha = topScrimAlpha),
+                0.35f to bgCanvasColor.copy(alpha = midScrimAlpha),
                 0.78f to bgCanvasColor.copy(alpha = if (isDark) 0.80f else 0.84f),
                 1.0f to bgCanvasColor.copy(alpha = if (isDark) 0.94f else 0.96f),
               )

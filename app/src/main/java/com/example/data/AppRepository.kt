@@ -4,6 +4,7 @@ import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
@@ -19,6 +20,7 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Process
+import android.os.UserManager
 import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
@@ -53,13 +55,19 @@ class AppRepository(private val context: Context) {
     val label: String,
     val packageName: String,
     val activityName: String,
-    val resolveInfo: ResolveInfo,
+    val resolveInfo: ResolveInfo?,
     val cachedIcon: ImageBitmap?,
     val isAdaptiveIcon: Boolean,
     val apkStamp: Long = 0L,
+    val isWorkProfile: Boolean = false,
+    val userSerialNumber: Long = 0L,
+    val launcherActivityInfo: LauncherActivityInfo? = null,
+    val appCategory: Int = android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED,
   ) {
     val componentKey: String
-      get() = "$packageName/$activityName"
+      get() =
+        if (userSerialNumber == 0L) "$packageName/$activityName"
+        else "$packageName/$activityName#$userSerialNumber"
   }
 
   private val diskIconDir: File by lazy {
@@ -141,27 +149,80 @@ class AppRepository(private val context: Context) {
           packageManager.queryIntentActivities(launcherIntent, 0)
         }
 
-      resolveInfos
-        .asSequence()
-        .filter { it.activityInfo != null && it.activityInfo.packageName != context.packageName }
-        .map { info ->
-          val pkg = info.activityInfo.packageName
-          val cls = info.activityInfo.name
-          val key = "$pkg/$cls"
-          val stamp = computeApkStamp(info)
-          val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty().ifEmpty { pkg }
-          val cached =
-            synchronized(iconCacheLock) { iconCache.get(key) } ?: loadFromDiskCache(key, stamp)
-          InstalledAppEntry(
-            label = label,
-            packageName = pkg,
-            activityName = cls,
-            resolveInfo = info,
-            cachedIcon = cached?.bitmap,
-            isAdaptiveIcon = cached?.isAdaptive ?: false,
-            apkStamp = stamp,
-          )
-        }
+      val primaryEntries =
+        resolveInfos
+          .asSequence()
+          .filter { it.activityInfo != null && it.activityInfo.packageName != context.packageName }
+          .map { info ->
+            val pkg = info.activityInfo.packageName
+            val cls = info.activityInfo.name
+            val key = "$pkg/$cls"
+            val stamp = computeApkStamp(info)
+            val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty().ifEmpty { pkg }
+            val cached =
+              synchronized(iconCacheLock) { iconCache.get(key) } ?: loadFromDiskCache(key, stamp)
+            val category =
+              info.activityInfo.applicationInfo?.category
+                ?: android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED
+            InstalledAppEntry(
+              label = label,
+              packageName = pkg,
+              activityName = cls,
+              resolveInfo = info,
+              cachedIcon = cached?.bitmap,
+              isAdaptiveIcon = cached?.isAdaptive ?: false,
+              apkStamp = stamp,
+              appCategory = category,
+            )
+          }
+
+      val profileEntries =
+        runCatching {
+          val launcherApps =
+            context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+          val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
+          val myHandle = Process.myUserHandle()
+          if (launcherApps != null && userManager != null) {
+            userManager.userProfiles
+              .asSequence()
+              .filter { it != myHandle }
+              .flatMap { handle ->
+                val serial = userManager.getSerialNumberForUser(handle)
+                launcherApps.getActivityList(null, handle).asSequence().map { activityInfo ->
+                  val component = activityInfo.componentName
+                  val key = "${component.packageName}/${component.className}#$serial"
+                  val stamp =
+                    runCatching {
+                      File(activityInfo.applicationInfo.sourceDir).lastModified()
+                    }.getOrDefault(0L)
+                  val label =
+                    activityInfo.label?.toString()?.trim().orEmpty().ifEmpty {
+                      component.packageName
+                    }
+                  val cached =
+                    synchronized(iconCacheLock) { iconCache.get(key) }
+                      ?: loadFromDiskCache(key, stamp)
+                  InstalledAppEntry(
+                    label = label,
+                    packageName = component.packageName,
+                    activityName = component.className,
+                    resolveInfo = null,
+                    cachedIcon = cached?.bitmap,
+                    isAdaptiveIcon = cached?.isAdaptive ?: false,
+                    apkStamp = stamp,
+                    isWorkProfile = true,
+                    userSerialNumber = serial,
+                    launcherActivityInfo = activityInfo,
+                    appCategory = activityInfo.applicationInfo.category,
+                  )
+                }
+              }
+          } else {
+            emptySequence()
+          }
+        }.getOrDefault(emptySequence())
+
+      (primaryEntries + profileEntries)
         .distinctBy { it.componentKey }
         .sortedBy { it.label.lowercase() }
         .toList()
@@ -177,7 +238,10 @@ class AppRepository(private val context: Context) {
         return@withContext diskCached.bitmap to diskCached.isAdaptive
       }
 
-      val drawable = entry.resolveInfo.loadIcon(packageManager)
+      val drawable =
+        entry.launcherActivityInfo?.getBadgedIcon(0)
+          ?: entry.resolveInfo?.loadIcon(packageManager)
+          ?: packageManager.defaultActivityIcon
       val isAdaptive = drawable is AdaptiveIconDrawable
       val bitmap = renderConsistentAppIcon(drawable)
       saveToDiskCache(key, entry.apkStamp, bitmap, isAdaptive)
@@ -197,6 +261,9 @@ class AppRepository(private val context: Context) {
         activityName = entry.activityName,
         icon = icon,
         isAdaptiveIcon = isAdaptive,
+        isWorkProfile = entry.isWorkProfile,
+        userSerialNumber = entry.userSerialNumber,
+        appCategory = entry.appCategory,
       )
     }
   }
@@ -269,6 +336,25 @@ class AppRepository(private val context: Context) {
   }
 
   fun launchApp(app: AppInfo): Boolean {
+    if (app.isWorkProfile && app.userSerialNumber != 0L) {
+      val launcherApps =
+        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+      val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
+      val targetUser = userManager?.getUserForSerialNumber(app.userSerialNumber)
+      if (launcherApps != null && targetUser != null) {
+        val started =
+          runCatching {
+            launcherApps.startMainActivity(
+              ComponentName(app.packageName, app.activityName),
+              targetUser,
+              null,
+              null,
+            )
+            true
+          }.getOrDefault(false)
+        if (started) return true
+      }
+    }
     return try {
       val intent =
         Intent(Intent.ACTION_MAIN).apply {
@@ -287,6 +373,38 @@ class AppRepository(private val context: Context) {
       } else {
         false
       }
+    }
+  }
+
+  suspend fun importCustomWallpaper(sourceUri: Uri): String? =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+          BitmapFactory.decodeStream(stream, null, boundsOpts)
+        }
+        val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight).coerceAtLeast(1)
+        var sampleSize = 1
+        while (maxDim / sampleSize > 1920) {
+          sampleSize *= 2
+        }
+        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bitmap =
+          context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOpts)
+          } ?: return@withContext null
+        val outFile = File(context.filesDir, "custom_wallpaper.jpg")
+        FileOutputStream(outFile).use { out ->
+          bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+        }
+        bitmap.recycle()
+        outFile.absolutePath
+      }.getOrNull()
+    }
+
+  fun clearCustomWallpaper(existingPath: String?) {
+    if (!existingPath.isNullOrBlank()) {
+      runCatching { File(existingPath).delete() }
     }
   }
 

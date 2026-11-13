@@ -1,14 +1,36 @@
 package com.example.util
 
 import java.text.DecimalFormat
+import java.util.Locale
 import kotlin.math.abs
 
 object MathEvaluator {
 
   private val formatter = DecimalFormat("#,##0.######")
+  private val percentOfRegex =
+    Regex("""^\s*([+-]?\d+(?:\.\d+)?)\s*%\s*(?:of|\*)\s*([+-]?\d+(?:\.\d+)?)\s*$""", RegexOption.IGNORE_CASE)
+  private val unitConvertRegex =
+    Regex("""^\s*([+-]?\d+(?:\.\d+)?)\s*([a-zA-Z°]+)\s+(?:to|in)\s+([a-zA-Z°]+)\s*$""", RegexOption.IGNORE_CASE)
 
   fun evaluateToString(rawExpression: String): String? {
-    val cleaned = rawExpression.replace(" ", "").replace("×", "*").replace("÷", "/")
+    val trimmed = rawExpression.trim()
+    if (trimmed.isEmpty()) return null
+
+    percentOfRegex.matchEntire(trimmed)?.let { match ->
+      val pct = match.groupValues[1].toDoubleOrNull() ?: return null
+      val base = match.groupValues[2].toDoubleOrNull() ?: return null
+      return formatNumber((pct / 100.0) * base)
+    }
+
+    unitConvertRegex.matchEntire(trimmed)?.let { match ->
+      val amount = match.groupValues[1].toDoubleOrNull() ?: return null
+      val fromUnit = normalizeUnit(match.groupValues[2])
+      val toUnit = normalizeUnit(match.groupValues[3])
+      val converted = convertUnits(amount, fromUnit, toUnit) ?: return null
+      return "${formatNumber(converted)} $toUnit"
+    }
+
+    val cleaned = trimmed.replace(" ", "").replace("×", "*").replace("÷", "/")
     if (cleaned.isEmpty()) return null
     val hasOperator = cleaned.any { it == '+' || it == '-' || it == '*' || it == '/' || it == '%' }
     if (!hasOperator) return null
@@ -16,9 +38,58 @@ object MathEvaluator {
     if (cleaned.startsWith("-") && cleaned.drop(1).none { it in "+-*/%" }) return null
 
     val value = parseExpression(cleaned) ?: return null
+    return formatNumber(value)
+  }
+
+  private fun formatNumber(value: Double): String? {
     if (value.isNaN() || value.isInfinite()) return null
     val rounded = if (abs(value - value.toLong()) < 1e-9) value.toLong().toDouble() else value
     return formatter.format(rounded)
+  }
+
+  private fun normalizeUnit(raw: String): String {
+    return when (raw.lowercase(Locale.US).removePrefix("°")) {
+      "km", "kilometer", "kilometers", "kilometre", "kilometres" -> "km"
+      "mi", "mile", "miles" -> "mi"
+      "m", "meter", "meters", "metre", "metres" -> "m"
+      "ft", "foot", "feet" -> "ft"
+      "cm", "centimeter", "centimeters" -> "cm"
+      "in", "inch", "inches" -> "in"
+      "kg", "kilogram", "kilograms" -> "kg"
+      "lb", "lbs", "pound", "pounds" -> "lb"
+      "g", "gram", "grams" -> "g"
+      "oz", "ounce", "ounces" -> "oz"
+      "c", "celsius" -> "°C"
+      "f", "fahrenheit" -> "°F"
+      "l", "liter", "liters", "litre", "litres" -> "L"
+      "gal", "gallon", "gallons" -> "gal"
+      "gb" -> "GB"
+      "mb" -> "MB"
+      else -> raw.lowercase(Locale.US)
+    }
+  }
+
+  private fun convertUnits(value: Double, from: String, to: String): Double? {
+    if (from == to) return value
+    return when (from to to) {
+      "km" to "mi" -> value * 0.62137119
+      "mi" to "km" -> value / 0.62137119
+      "m" to "ft" -> value * 3.2808399
+      "ft" to "m" -> value / 3.2808399
+      "cm" to "in" -> value / 2.54
+      "in" to "cm" -> value * 2.54
+      "kg" to "lb" -> value * 2.20462262
+      "lb" to "kg" -> value / 2.20462262
+      "g" to "oz" -> value / 28.3495231
+      "oz" to "g" -> value * 28.3495231
+      "°C" to "°F" -> (value * 9.0 / 5.0) + 32.0
+      "°F" to "°C" -> (value - 32.0) * 5.0 / 9.0
+      "L" to "gal" -> value * 0.26417205
+      "gal" to "L" -> value / 0.26417205
+      "GB" to "MB" -> value * 1024.0
+      "MB" to "GB" -> value / 1024.0
+      else -> null
+    }
   }
 
   private fun parseExpression(expr: String): Double? {

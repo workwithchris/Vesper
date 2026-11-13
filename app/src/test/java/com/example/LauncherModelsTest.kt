@@ -485,4 +485,94 @@ class LauncherModelsTest {
       ),
     )
   }
+
+  @Test
+  fun `ClockStyle resolves fallback to NEON_HORIZON and work profile keys preserve backward compatibility`() {
+    assertEquals(com.example.model.ClockStyle.NEON_HORIZON, com.example.model.ClockStyle.fromName(null))
+    assertEquals(com.example.model.ClockStyle.NEON_HORIZON, com.example.model.ClockStyle.fromName("UNKNOWN"))
+    com.example.model.ClockStyle.entries.forEach { style ->
+      assertEquals(style, com.example.model.ClockStyle.fromName(style.name))
+    }
+
+    val personalApp = AppInfo("Mail", "com.mail", "Main", null, isWorkProfile = false, userSerialNumber = 0L)
+    val workApp = AppInfo("Mail", "com.mail", "Main", null, isWorkProfile = true, userSerialNumber = 12L)
+    assertEquals("com.mail/Main", personalApp.componentKey)
+    assertEquals("com.mail/Main#12", workApp.componentKey)
+  }
+
+  @Test
+  fun `MathEvaluator supports percentage expressions and unit conversions`() {
+    assertEquals("36", com.example.util.MathEvaluator.evaluateToString("20% of 180"))
+    assertEquals("30", com.example.util.MathEvaluator.evaluateToString("15% * 200"))
+    assertEquals("0 °C", com.example.util.MathEvaluator.evaluateToString("32 f to c"))
+    assertEquals("212 °F", com.example.util.MathEvaluator.evaluateToString("100 c in f"))
+    assertEquals("2,048 MB", com.example.util.MathEvaluator.evaluateToString("2 gb to mb"))
+    assertEquals("6.213712 mi", com.example.util.MathEvaluator.evaluateToString("10 km to mi"))
+    assertEquals(null, com.example.util.MathEvaluator.evaluateToString("10 km to kg"))
+  }
+
+  @Test
+  fun `SettingsRepository backup roundtrips clock, battery, dim, and intention fields`() {
+    val original =
+      LauncherSettings(
+        clockStyle = com.example.model.ClockStyle.MONO_TERMINAL,
+        showClockSeconds = true,
+        showBatteryIndicator = true,
+        wallpaperDimPercent = 65,
+        dailyIntention = "Finish v1.2 polish",
+      )
+    val json = com.example.data.SettingsRepository.encodeSettingsBackupJson(original)
+    val restored = com.example.data.SettingsRepository.decodeSettingsBackupJson(json)
+    assertNotNull(restored)
+    assertEquals(com.example.model.ClockStyle.MONO_TERMINAL, restored?.clockStyle)
+    assertTrue(restored?.showClockSeconds == true)
+    assertTrue(restored?.showBatteryIndicator == true)
+    assertEquals(65, restored?.wallpaperDimPercent)
+    assertEquals("Finish v1.2 polish", restored?.dailyIntention)
+  }
+
+  @Test
+  fun `SmartFolderCategorizer groups apps into Social Media Productivity by usage and preserves custom folders`() {
+    val slack = AppInfo("Slack", "com.Slack", "Main", null, dailyLaunchCount = 4)
+    val whatsapp = AppInfo("WhatsApp", "com.whatsapp", "Main", null, dailyLaunchCount = 9)
+    val spotify =
+      AppInfo(
+        label = "Spotify",
+        packageName = "com.spotify.music",
+        activityName = "Main",
+        icon = null,
+        dailyLaunchCount = 15,
+        appCategory = android.content.pm.ApplicationInfo.CATEGORY_AUDIO,
+      )
+    val youtube = AppInfo("YouTube", "com.google.android.youtube", "Main", null, dailyLaunchCount = 6)
+    val calendar = AppInfo("Calendar", "com.google.android.calendar", "Main", null, dailyLaunchCount = 5)
+    val customFolder = com.example.model.AppFolder("custom_1", "Deep Work", listOf(calendar.componentKey))
+
+    assertEquals(
+      com.example.util.SmartAppCategory.SOCIAL,
+      com.example.util.SmartFolderCategorizer.classifyApp(slack),
+    )
+    assertEquals(
+      com.example.util.SmartAppCategory.MEDIA,
+      com.example.util.SmartFolderCategorizer.classifyApp(spotify),
+    )
+    assertEquals(
+      com.example.util.SmartAppCategory.PRODUCTIVITY,
+      com.example.util.SmartFolderCategorizer.classifyApp(calendar),
+    )
+
+    val folders =
+      com.example.util.SmartFolderCategorizer.generateSmartFolders(
+        apps = listOf(slack, whatsapp, spotify, youtube, calendar),
+        existingFolders = listOf(customFolder),
+      )
+
+    // Media has 15 + 6 = 21 launches, Social has 9 + 4 = 13 launches, Productivity has 5 launches, followed by custom folder
+    assertEquals(listOf("Media", "Social", "Productivity", "Deep Work"), folders.map { it.name })
+    // Inside Media, Spotify (15) comes before YouTube (6)
+    assertEquals(listOf(spotify.componentKey, youtube.componentKey), folders[0].componentKeys)
+    // Inside Social, WhatsApp (9) comes before Slack (4)
+    assertEquals(listOf(whatsapp.componentKey, slack.componentKey), folders[1].componentKeys)
+  }
 }
+

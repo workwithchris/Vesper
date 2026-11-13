@@ -14,9 +14,14 @@ data class AppInfo(
   val originalLabel: String = label,
   val dailyLaunchCount: Int = 0,
   val isMindfulPaused: Boolean = false,
+  val isWorkProfile: Boolean = false,
+  val userSerialNumber: Long = 0L,
+  val appCategory: Int = -1,
 ) {
   val componentKey: String
-    get() = "$packageName/$activityName"
+    get() =
+      if (userSerialNumber == 0L) "$packageName/$activityName"
+      else "$packageName/$activityName#$userSerialNumber"
 
   val initialLetter: Char
     get() {
@@ -129,6 +134,23 @@ enum class AdaptiveIconShape(val label: String) {
   }
 }
 
+enum class ClockStyle(val label: String) {
+  NEON_HORIZON("Neon Horizon"),
+  MONO_TERMINAL("Mono Terminal"),
+  MINIMAL_EDITORIAL("Editorial");
+
+  companion object {
+    fun fromName(name: String?): ClockStyle =
+      entries.firstOrNull { it.name == name } ?: NEON_HORIZON
+  }
+}
+
+enum class DrawerProfileFilter(val label: String) {
+  ALL("All"),
+  PERSONAL("Personal"),
+  WORK("Work"),
+}
+
 @Immutable
 data class CalendarEventPreview(
   val id: Long,
@@ -176,6 +198,13 @@ data class LauncherSettings(
   val focusTimerDurationMinutes: Int = 25,
   val focusTimerEndMillis: Long = 0L,
   val hasCompletedOnboarding: Boolean = false,
+  val clockStyle: ClockStyle = ClockStyle.NEON_HORIZON,
+  val showClockSeconds: Boolean = false,
+  val showBatteryIndicator: Boolean = true,
+  val customWallpaperPath: String? = null,
+  val wallpaperDimPercent: Int = 55,
+  val dailyIntention: String = "",
+  val widgetStackEnabled: Boolean = true,
 )
 
 @Immutable
@@ -240,6 +269,10 @@ data class LauncherUiState(
   val isFocusModeActive: Boolean = false,
   val isDefaultHomeLauncher: Boolean = false,
   val mindfulInsights: MindfulInsights = MindfulInsights(),
+  val drawerProfileFilter: DrawerProfileFilter = DrawerProfileFilter.ALL,
+  val hasWorkProfileApps: Boolean = false,
+  val frequentDrawerApps: List<AppInfo> = emptyList(),
+  val appShortcutsByPackage: Map<String, List<AppShortcutItem>> = emptyMap(),
 )
 
 enum class LauncherDestination {

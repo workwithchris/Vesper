@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AccentOption
 import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
+import com.example.model.ClockStyle
 import com.example.model.HomeGestureAction
 import com.example.model.LauncherSettings
 import com.example.model.ScrollSpeed
@@ -77,6 +78,13 @@ class SettingsRepository(private val context: Context) {
     val DAILY_MINDFUL_DATE = stringPreferencesKey("daily_mindful_date")
     val DAILY_MINDFUL_STAYED = intPreferencesKey("daily_mindful_stayed")
     val DAILY_MINDFUL_CONTINUED = intPreferencesKey("daily_mindful_continued")
+    val CLOCK_STYLE = stringPreferencesKey("clock_style")
+    val SHOW_CLOCK_SECONDS = booleanPreferencesKey("show_clock_seconds")
+    val SHOW_BATTERY_INDICATOR = booleanPreferencesKey("show_battery_indicator")
+    val CUSTOM_WALLPAPER_PATH = stringPreferencesKey("custom_wallpaper_path")
+    val WALLPAPER_DIM_PERCENT = intPreferencesKey("wallpaper_dim_percent")
+    val DAILY_INTENTION = stringPreferencesKey("daily_intention")
+    val WIDGET_STACK_ENABLED = booleanPreferencesKey("widget_stack_enabled")
   }
 
   private fun todayKey(): String =
@@ -134,6 +142,13 @@ class SettingsRepository(private val context: Context) {
         focusTimerDurationMinutes = (prefs[Keys.FOCUS_TIMER_DURATION_MIN] ?: 25).coerceIn(5, 90),
         focusTimerEndMillis = prefs[Keys.FOCUS_TIMER_END_MILLIS] ?: 0L,
         hasCompletedOnboarding = prefs[Keys.HAS_COMPLETED_ONBOARDING] ?: false,
+        clockStyle = ClockStyle.fromName(prefs[Keys.CLOCK_STYLE]),
+        showClockSeconds = prefs[Keys.SHOW_CLOCK_SECONDS] ?: false,
+        showBatteryIndicator = prefs[Keys.SHOW_BATTERY_INDICATOR] ?: true,
+        customWallpaperPath = prefs[Keys.CUSTOM_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
+        wallpaperDimPercent = (prefs[Keys.WALLPAPER_DIM_PERCENT] ?: 55).coerceIn(20, 85),
+        dailyIntention = prefs[Keys.DAILY_INTENTION] ?: "",
+        widgetStackEnabled = prefs[Keys.WIDGET_STACK_ENABLED] ?: true,
       )
     }
 
@@ -213,6 +228,12 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.edit { prefs ->
       val current = decodeFoldersJson(prefs[Keys.FOLDERS_JSON]).filterNot { it.id == folderId }
       prefs[Keys.FOLDERS_JSON] = encodeFoldersJson(current)
+    }
+  }
+
+  suspend fun replaceFolders(folders: List<AppFolder>) {
+    context.launcherDataStore.edit { prefs ->
+      prefs[Keys.FOLDERS_JSON] = encodeFoldersJson(folders)
     }
   }
 
@@ -315,6 +336,41 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.edit { it[Keys.HAS_COMPLETED_ONBOARDING] = completed }
   }
 
+  suspend fun setClockStyle(style: ClockStyle) {
+    context.launcherDataStore.edit { it[Keys.CLOCK_STYLE] = style.name }
+  }
+
+  suspend fun setShowClockSeconds(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.SHOW_CLOCK_SECONDS] = enabled }
+  }
+
+  suspend fun setShowBatteryIndicator(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.SHOW_BATTERY_INDICATOR] = enabled }
+  }
+
+  suspend fun setCustomWallpaperPath(path: String?) {
+    context.launcherDataStore.edit { prefs ->
+      if (path.isNullOrBlank()) prefs.remove(Keys.CUSTOM_WALLPAPER_PATH)
+      else prefs[Keys.CUSTOM_WALLPAPER_PATH] = path
+    }
+  }
+
+  suspend fun setWallpaperDimPercent(percent: Int) {
+    context.launcherDataStore.edit { it[Keys.WALLPAPER_DIM_PERCENT] = percent.coerceIn(20, 85) }
+  }
+
+  suspend fun setDailyIntention(intention: String) {
+    context.launcherDataStore.edit { prefs ->
+      val trimmed = intention.trim()
+      if (trimmed.isEmpty()) prefs.remove(Keys.DAILY_INTENTION)
+      else prefs[Keys.DAILY_INTENTION] = trimmed
+    }
+  }
+
+  suspend fun setWidgetStackEnabled(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.WIDGET_STACK_ENABLED] = enabled }
+  }
+
   suspend fun importSettingsBackup(jsonString: String): Boolean {
     val imported = decodeSettingsBackupJson(jsonString) ?: return false
     context.launcherDataStore.edit { prefs ->
@@ -346,6 +402,13 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.FOCUS_SCHEDULE_END_MIN] = imported.focusScheduleEndMinutes
       prefs[Keys.FOCUS_ESSENTIAL_KEYS] = imported.focusEssentialComponentKeys.joinToString("\n")
       prefs[Keys.FOCUS_TIMER_DURATION_MIN] = imported.focusTimerDurationMinutes
+      prefs[Keys.CLOCK_STYLE] = imported.clockStyle.name
+      prefs[Keys.SHOW_CLOCK_SECONDS] = imported.showClockSeconds
+      prefs[Keys.SHOW_BATTERY_INDICATOR] = imported.showBatteryIndicator
+      prefs[Keys.WALLPAPER_DIM_PERCENT] = imported.wallpaperDimPercent
+      if (imported.dailyIntention.isNotBlank()) prefs[Keys.DAILY_INTENTION] = imported.dailyIntention
+      else prefs.remove(Keys.DAILY_INTENTION)
+      prefs[Keys.WIDGET_STACK_ENABLED] = imported.widgetStackEnabled
       prefs[Keys.HAS_COMPLETED_ONBOARDING] = true
     }
     return true
@@ -398,6 +461,13 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.SWIPE_LEFT_ACTION] = HomeGestureAction.OPEN_CAMERA.name
       prefs[Keys.SWIPE_RIGHT_ACTION] = HomeGestureAction.TOGGLE_FOCUS_MODE.name
       prefs[Keys.DOUBLE_TAP_ACTION] = HomeGestureAction.OPEN_SEARCH.name
+      prefs[Keys.CLOCK_STYLE] = ClockStyle.NEON_HORIZON.name
+      prefs[Keys.SHOW_CLOCK_SECONDS] = false
+      prefs[Keys.SHOW_BATTERY_INDICATOR] = true
+      prefs[Keys.WALLPAPER_DIM_PERCENT] = 55
+      prefs.remove(Keys.CUSTOM_WALLPAPER_PATH)
+      prefs.remove(Keys.DAILY_INTENTION)
+      prefs[Keys.WIDGET_STACK_ENABLED] = true
     }
   }
 
@@ -502,6 +572,12 @@ class SettingsRepository(private val context: Context) {
         put("focusSchedEnd", s.focusScheduleEndMinutes)
         put("focusEssentials", JSONArray(s.focusEssentialComponentKeys.toList()))
         put("focusTimerMin", s.focusTimerDurationMinutes)
+        put("clockStyle", s.clockStyle.name)
+        put("showSeconds", s.showClockSeconds)
+        put("showBattery", s.showBatteryIndicator)
+        put("wallpaperDim", s.wallpaperDimPercent)
+        put("dailyIntention", s.dailyIntention)
+        put("widgetStack", s.widgetStackEnabled)
         put(
           "weatherLoc",
           JSONObject().apply {
@@ -569,6 +645,12 @@ class SettingsRepository(private val context: Context) {
           focusScheduleEndMinutes = obj.optInt("focusSchedEnd", 17 * 60),
           focusEssentialComponentKeys = jsonArrayStrings("focusEssentials").toSet(),
           focusTimerDurationMinutes = obj.optInt("focusTimerMin", 25).coerceIn(5, 90),
+          clockStyle = ClockStyle.fromName(obj.optString("clockStyle")),
+          showClockSeconds = obj.optBoolean("showSeconds", false),
+          showBatteryIndicator = obj.optBoolean("showBattery", true),
+          wallpaperDimPercent = obj.optInt("wallpaperDim", 55).coerceIn(20, 85),
+          dailyIntention = obj.optString("dailyIntention", ""),
+          widgetStackEnabled = obj.optBoolean("widgetStack", true),
           weatherLocation = location,
           hasCompletedOnboarding = true,
         )

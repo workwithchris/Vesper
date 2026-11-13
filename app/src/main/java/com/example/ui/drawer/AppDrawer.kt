@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -69,9 +72,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -83,10 +91,12 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.AppInfo
 import com.example.model.AppShortcutItem
+import com.example.model.DrawerProfileFilter
 import com.example.model.DrawerQuickAction
 import com.example.model.LauncherUiState
 import com.example.ui.components.AlphabetScrubberRail
 import com.example.ui.components.AppListRow
+import com.example.ui.components.FramedAppIcon
 import com.example.ui.components.MinimalDropdownItem
 import com.example.ui.components.RenameAppDialog
 import com.example.util.LauncherHapticEvent
@@ -112,16 +122,15 @@ fun AppDrawer(
   onHideApp: (AppInfo) -> Unit,
   onToggleMindfulPause: (AppInfo) -> Unit,
   modifier: Modifier = Modifier,
+  onSelectProfileFilter: (DrawerProfileFilter) -> Unit = {},
 ) {
   val launcherHaptics = rememberLauncherHaptics(uiState.settings.hapticFeedbackEnabled)
+  val focusManager = LocalFocusManager.current
 
   BackHandler(enabled = isOpen) {
     launcherHaptics.trigger(LauncherHapticEvent.DRAWER_CLOSE_SWIPE)
-    if (uiState.searchQuery.isNotEmpty()) {
-      onSearchQueryChange("")
-    } else {
-      onClose()
-    }
+    focusManager.clearFocus(force = true)
+    onClose()
   }
 
   var renameTarget by remember { mutableStateOf<AppInfo?>(null) }
@@ -205,11 +214,46 @@ fun AppDrawer(
       remember(uiState.favoriteApps) { uiState.favoriteApps.map { it.componentKey }.toSet() }
     val accentColor = MaterialTheme.colorScheme.primary
 
+    val drawerCloseSwipeConnection =
+      remember(listState, onClose, launcherHaptics, focusManager) {
+        object : NestedScrollConnection {
+          private var downwardOverscroll = 0f
+
+          override fun onPostScroll(
+            consumed: Offset,
+            available: Offset,
+            source: NestedScrollSource,
+          ): Offset {
+            if (source == NestedScrollSource.UserInput) {
+              if (available.y > 0f && !listState.canScrollBackward) {
+                downwardOverscroll += available.y
+                if (downwardOverscroll > 64f) {
+                  downwardOverscroll = 0f
+                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_CLOSE_SWIPE)
+                  focusManager.clearFocus(force = true)
+                  onClose()
+                }
+              } else {
+                downwardOverscroll = 0f
+              }
+            }
+            return Offset.Zero
+          }
+        }
+      }
+
+    val hasBackdrop =
+      uiState.settings.coastalBackdropEnabled ||
+        !uiState.settings.customWallpaperPath.isNullOrBlank()
+
     Box(
       modifier =
         Modifier
           .fillMaxSize()
-          .background(MaterialTheme.colorScheme.background)
+          .background(
+            MaterialTheme.colorScheme.background.copy(alpha = if (hasBackdrop) 0.72f else 0.96f)
+          )
+          .nestedScroll(drawerCloseSwipeConnection)
           .statusBarsPadding()
           .navigationBarsPadding(),
       contentAlignment = Alignment.TopCenter,
@@ -236,7 +280,7 @@ fun AppDrawer(
                   },
                 )
               }
-              .padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
+              .padding(start = 24.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Text(
@@ -328,9 +372,9 @@ fun AppDrawer(
           colors =
             OutlinedTextFieldDefaults.colors(
               focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-              unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-              focusedContainerColor = MaterialTheme.colorScheme.surface,
-              unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+              focusedContainerColor = Color.Transparent,
+              unfocusedContainerColor = Color.Transparent,
               focusedTextColor = MaterialTheme.colorScheme.onBackground,
               unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
               cursorColor = accentColor,
@@ -343,6 +387,89 @@ fun AppDrawer(
               .focusRequester(searchFocusRequester)
               .testTag("drawer_search_input"),
         )
+
+        if (uiState.hasWorkProfileApps) {
+          Spacer(modifier = Modifier.height(8.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            DrawerProfileFilter.entries.forEach { filter ->
+              val selected = uiState.drawerProfileFilter == filter
+              Surface(
+                onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                  onSelectProfileFilter(filter)
+                },
+                shape = RoundedCornerShape(8.dp),
+                color =
+                  if (selected) accentColor.copy(alpha = 0.16f)
+                  else Color.Transparent,
+                border =
+                  BorderStroke(
+                    width = 1.dp,
+                    color = if (selected) accentColor else MaterialTheme.colorScheme.outline,
+                  ),
+                modifier = Modifier.testTag("profile_filter_${filter.name.lowercase()}"),
+              ) {
+                Text(
+                  text = filter.label,
+                  style = MaterialTheme.typography.labelMedium,
+                  color =
+                    if (selected) accentColor
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+              }
+            }
+          }
+        }
+
+        if (uiState.searchQuery.isEmpty() && uiState.frequentDrawerApps.isNotEmpty()) {
+          Spacer(modifier = Modifier.height(8.dp))
+          Text(
+            text = "FREQUENT",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp),
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().testTag("frequent_apps_row"),
+          ) {
+            items(
+              items = uiState.frequentDrawerApps,
+              key = { "freq_${it.componentKey}" },
+            ) { freqApp ->
+              Surface(
+                onClick = {
+                  launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                  onLaunchApp(freqApp)
+                },
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Transparent,
+                modifier = Modifier.testTag("frequent_app_${freqApp.packageName}"),
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  FramedAppIcon(app = freqApp, frameSize = 24.dp)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = freqApp.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                  )
+                }
+              }
+            }
+          }
+        }
 
         // Inline Quick Math card when typing arithmetic expressions
         val mathAnswer = uiState.quickMathResult
@@ -457,7 +584,7 @@ fun AppDrawer(
           }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
           if (uiState.drawerSections.isEmpty()) {
@@ -506,8 +633,8 @@ fun AppDrawer(
                   PaddingValues(
                     start = 24.dp,
                     end = if (uiState.settings.alphabetIndexEnabled) 8.dp else 24.dp,
-                    top = 6.dp,
-                    bottom = 24.dp,
+                    top = 2.dp,
+                    bottom = 16.dp,
                   ),
                 modifier = Modifier.weight(1f).fillMaxHeight().testTag("drawer_app_list"),
               ) {
@@ -520,26 +647,29 @@ fun AppDrawer(
                       text = section.letter.toString(),
                       style =
                         MaterialTheme.typography.titleMedium.copy(
-                          fontSize = 15.sp,
+                          fontSize = 13.sp,
                           fontWeight = FontWeight.SemiBold,
                           color = accentColor,
                         ),
-                      modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 4.dp),
+                      modifier = Modifier.padding(top = 6.dp, bottom = 2.dp, start = 4.dp),
                     )
                   }
                   itemsIndexed(
                     items = section.apps,
                     key = { _, app -> "drawer_${app.componentKey}" },
                     contentType = { _, _ -> "drawer_app" },
-                  ) { index, app ->
+                  ) { _, app ->
                     val isFav = app.componentKey in favoriteKeys
                     AppListRow(
                       app = app,
                       showLabel = true,
                       hapticEnabled = uiState.settings.hapticFeedbackEnabled,
                       showDailyLaunchCount = uiState.settings.showDailyLaunchCounts,
+                      iconSize = 34.dp,
+                      verticalPadding = 4.dp,
+                      horizontalGap = 12.dp,
                       onTap = { onLaunchApp(app) },
-                      showDivider = index == section.apps.lastIndex,
+                      showDivider = false,
                     ) { dismiss ->
                       MinimalDropdownItem(
                         text = stringResource(R.string.app_info),
@@ -590,6 +720,23 @@ fun AppDrawer(
                           renameTarget = app
                         },
                       )
+                      uiState.appShortcutsByPackage[app.packageName].orEmpty().take(3).forEach { shortcut ->
+                        MinimalDropdownItem(
+                          text = shortcut.shortLabel,
+                          icon = {
+                            Icon(
+                              Icons.Outlined.Bolt,
+                              contentDescription = null,
+                              tint = accentColor,
+                            )
+                          },
+                          onClick = {
+                            launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                            dismiss()
+                            onLaunchShortcut(shortcut)
+                          },
+                        )
+                      }
                       MinimalDropdownItem(
                         text =
                           stringResource(

@@ -44,6 +44,7 @@ import com.example.viewmodel.LauncherViewModel
 class MainActivity : ComponentActivity() {
 
   private val launcherViewModel: LauncherViewModel by viewModels()
+  private val homeIntentCounter = androidx.compose.runtime.mutableIntStateOf(0)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
     setContent {
       LauncherAppRoot(
         viewModel = launcherViewModel,
+        homeIntentTrigger = homeIntentCounter.intValue,
         onSystemBarThemeChange = { isDark ->
           enableEdgeToEdge(
             statusBarStyle =
@@ -65,11 +67,24 @@ class MainActivity : ComponentActivity() {
       )
     }
   }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    homeIntentCounter.intValue++
+  }
+
+  override fun onUserLeaveHint() {
+    super.onUserLeaveHint()
+    // Also reset drawer/settings when user leaves or swipes home gesture
+    homeIntentCounter.intValue++
+  }
 }
 
 @Composable
 private fun LauncherAppRoot(
   viewModel: LauncherViewModel,
+  homeIntentTrigger: Int,
   onSystemBarThemeChange: (Boolean) -> Unit,
 ) {
   val context = LocalContext.current
@@ -79,6 +94,15 @@ private fun LauncherAppRoot(
   var destination by rememberSaveable { mutableStateOf(LauncherDestination.HOME) }
   var drawerFocusSearch by rememberSaveable { mutableStateOf(false) }
   var drawerInitialLetter by rememberSaveable { mutableStateOf<Char?>(null) }
+
+  LaunchedEffect(homeIntentTrigger) {
+    if (homeIntentTrigger > 0 && destination != LauncherDestination.HOME) {
+      destination = LauncherDestination.HOME
+      drawerFocusSearch = false
+      drawerInitialLetter = null
+      viewModel.onSearchQueryChange("")
+    }
+  }
 
   DisposableEffect(lifecycleOwner) {
     val observer = LifecycleEventObserver { _, event ->
@@ -178,6 +202,10 @@ private fun LauncherAppRoot(
             onToggleMindfulPause = viewModel::toggleMindfulPausedApp,
             onSaveFolder = viewModel::saveFolder,
             onDeleteFolder = viewModel::deleteFolder,
+            onMoveFavorite = viewModel::moveFavoriteApp,
+            onSaveDailyIntention = viewModel::setDailyIntention,
+            onLaunchShortcut = viewModel::launchShortcut,
+            onAutoCategorizeFolders = { viewModel.autoCategorizeFolders() },
           )
 
           AppDrawer(
@@ -234,6 +262,7 @@ private fun LauncherAppRoot(
             onRenameApp = viewModel::renameApp,
             onHideApp = viewModel::hideApp,
             onToggleMindfulPause = viewModel::toggleMindfulPausedApp,
+            onSelectProfileFilter = viewModel::setDrawerProfileFilter,
           )
         }
         LauncherDestination.SETTINGS -> {
@@ -276,6 +305,14 @@ private fun LauncherAppRoot(
             onResetLayout = viewModel::resetLayout,
             onExportBackupJson = viewModel::exportSettingsBackupJson,
             onImportBackupJson = viewModel::importSettingsBackupJson,
+            onSelectClockStyle = viewModel::setClockStyle,
+            onToggleClockSeconds = viewModel::setShowClockSeconds,
+            onToggleBatteryIndicator = viewModel::setShowBatteryIndicator,
+            onPickCustomWallpaper = viewModel::pickCustomWallpaper,
+            onClearCustomWallpaper = viewModel::clearCustomWallpaper,
+            onChangeWallpaperDimPercent = viewModel::setWallpaperDimPercent,
+            onToggleWidgetStack = viewModel::setWidgetStackEnabled,
+            onAutoCategorizeFolders = viewModel::autoCategorizeFolders,
           )
         }
       }

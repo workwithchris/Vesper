@@ -114,13 +114,11 @@ fun AdaptiveIconShape.toComposeShape(): Shape =
 fun FramedAppIcon(
   app: AppInfo,
   modifier: Modifier = Modifier,
-  frameSize: Dp = 42.dp,
+  frameSize: Dp = 38.dp,
   adaptiveShape: AdaptiveIconShape = LocalAdaptiveIconShape.current,
 ) {
   val iconShape = remember(adaptiveShape) { adaptiveShape.toComposeShape() }
   val isDark = LocalLauncherIsDark.current
-  val tileFill = MaterialTheme.colorScheme.surface
-  val tileBorder = MaterialTheme.colorScheme.outline
   val iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.94f else 0.90f)
 
   Box(
@@ -128,13 +126,7 @@ fun FramedAppIcon(
       modifier
         .size(frameSize)
         .clip(iconShape)
-        .background(tileFill)
-        .border(
-          width = 1.dp,
-          color = tileBorder,
-          shape = iconShape,
-        )
-        .padding(8.dp),
+        .padding(2.dp),
     contentAlignment = Alignment.Center,
   ) {
     if (app.icon != null) {
@@ -150,7 +142,7 @@ fun FramedAppIcon(
         imageVector = Icons.Outlined.Android,
         contentDescription = app.label,
         tint = iconTint,
-        modifier = Modifier.size(frameSize * 0.52f),
+        modifier = Modifier.size(frameSize * 0.62f),
       )
     }
   }
@@ -164,7 +156,9 @@ fun AppListRow(
   hapticEnabled: Boolean,
   onTap: () -> Unit,
   modifier: Modifier = Modifier,
-  iconSize: Dp = 42.dp,
+  iconSize: Dp = 38.dp,
+  verticalPadding: Dp = 6.dp,
+  horizontalGap: Dp = 12.dp,
   showDivider: Boolean = true,
   showDailyLaunchCount: Boolean = false,
   adaptiveShape: AdaptiveIconShape = LocalAdaptiveIconShape.current,
@@ -201,15 +195,13 @@ fun AppListRow(
     }
   }
 
-  val iconShape = remember(adaptiveShape) { adaptiveShape.toComposeShape() }
-
   Box(modifier = modifier.fillMaxWidth()) {
     Column(modifier = Modifier.fillMaxWidth()) {
       Row(
         modifier =
           Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .combinedClickable(
               interactionSource = interactionSource,
               indication = LocalIndication.current,
@@ -233,7 +225,7 @@ fun AppListRow(
                 menuExpanded = true
               },
             )
-            .padding(vertical = 10.dp, horizontal = 4.dp)
+            .padding(vertical = verticalPadding, horizontal = 4.dp)
             .testTag("app_row_${app.packageName}"),
         verticalAlignment = Alignment.CenterVertically,
       ) {
@@ -250,7 +242,7 @@ fun AppListRow(
         )
 
         if (showLabel) {
-          Spacer(modifier = Modifier.width(16.dp))
+          Spacer(modifier = Modifier.width(horizontalGap))
           Text(
             text = app.label,
             style = MaterialTheme.typography.titleMedium,
@@ -259,6 +251,22 @@ fun AppListRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
           )
+
+          if (app.isWorkProfile) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+              shape = RoundedCornerShape(6.dp),
+              color = MaterialTheme.colorScheme.surfaceVariant,
+              border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline),
+            ) {
+              Text(
+                text = "WORK",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).testTag("work_badge_${app.packageName}"),
+              )
+            }
+          }
 
           if (showDailyLaunchCount && app.dailyLaunchCount > 0) {
             Spacer(modifier = Modifier.width(8.dp))

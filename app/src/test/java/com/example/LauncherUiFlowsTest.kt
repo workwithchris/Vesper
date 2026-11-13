@@ -2,10 +2,13 @@ package com.example
 
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -22,10 +25,14 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.dp
 import com.example.model.AccentOption
 import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
 import com.example.model.AppInfo
+import com.example.model.AppShortcutItem
+import com.example.model.ClockStyle
+import com.example.model.DrawerProfileFilter
 import com.example.model.HomeGestureAction
 import com.example.model.LauncherSettings
 import com.example.model.LauncherUiState
@@ -38,6 +45,7 @@ import com.example.ui.drawer.AppDrawer
 import com.example.ui.home.CoastalGradientOverlay
 import com.example.ui.home.GyroscopeParallaxState
 import com.example.ui.home.HomeScreen
+import com.example.ui.home.SynthwaveClockWidget
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.NeonSunsetTheme
 import com.example.util.FocusAndSearchUtils
@@ -120,6 +128,9 @@ class LauncherUiFlowsTest {
     composeTestRule.waitForIdle()
     assertEquals(sampleNotes.componentKey to "Notes Pad", renamedTarget)
 
+    // Swipe up on the stacked widget deck to switch from Weather (slot 0) to Focus Timer (slot 1)
+    composeTestRule.onNodeWithTag("home_widget_stack").assertIsDisplayed().performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("hero_focus_timer_start").assertIsDisplayed().performClick()
     composeTestRule.waitForIdle()
     assertEquals(25, timerStartedMinutes)
@@ -545,4 +556,284 @@ class LauncherUiFlowsTest {
     composeTestRule.waitForIdle()
     assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
   }
+
+  @Test
+  fun `clock widget renders all three clock styles as frameless text and numbers with battery readout`() {
+    var activeStyle by mutableStateOf(ClockStyle.MONO_TERMINAL)
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        SynthwaveClockWidget(
+          formattedTime = "9:41:08",
+          amPmLabel = "AM",
+          formattedDate = "Friday, November 13",
+          locationLabel = "Miami",
+          reducedMotion = true,
+          onClick = {},
+          clockStyle = activeStyle,
+          batteryPercent = 82,
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("status_clock").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("clock_battery_chip", useUnmergedTree = true).assertIsDisplayed()
+    composeTestRule.onNodeWithText("· 82%", useUnmergedTree = true).assertIsDisplayed()
+    composeTestRule.onNodeWithText(">", useUnmergedTree = true).assertIsDisplayed()
+    composeTestRule.onNodeWithText("9:41:08", useUnmergedTree = true).assertIsDisplayed()
+
+    activeStyle = ClockStyle.MINIMAL_EDITORIAL
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Friday, November 13", useUnmergedTree = true).assertIsDisplayed()
+  }
+
+  @Test
+  fun `home screen widget stack swipes vertically to daily intention and favorites long-press offers move and shortcuts`() {
+    var savedIntention: String? = null
+    var moveDelta: Int? = null
+    var launchedShortcutId: String? = null
+    val shortcut = AppShortcutItem("new_event", sampleCalendar.packageName, "New event", "Calendar")
+
+    val uiState =
+      LauncherUiState(
+        isLoading = false,
+        allApps = listOf(sampleCalendar, sampleNotes),
+        allVisibleApps = listOf(sampleCalendar, sampleNotes),
+        favoriteApps = listOf(sampleCalendar, sampleNotes),
+        appShortcutsByPackage = mapOf(sampleCalendar.packageName to listOf(shortcut)),
+        settings = LauncherSettings(hasCompletedOnboarding = true, reducedMotionEnabled = true),
+      )
+
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        HomeScreen(
+          uiState = uiState,
+          onOpenDrawer = { _, _ -> },
+          onOpenSettings = {},
+          onClockClick = {},
+          onRefreshWeather = {},
+          onOpenCalendar = {},
+          onExpandNotificationShade = {},
+          onTriggerGestureAction = {},
+          onStartFocusTimer = {},
+          onStopFocusTimer = {},
+          onToggleFocusMode = {},
+          onLaunchApp = {},
+          onOpenAppInfo = {},
+          onRemoveFromFavorites = {},
+          onRenameApp = { _, _ -> },
+          onToggleMindfulPause = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+          onMoveFavorite = { _, delta -> moveDelta = delta },
+          onSaveDailyIntention = { savedIntention = it },
+          onLaunchShortcut = { launchedShortcutId = it.id },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    // Slot 0 = Weather, swipe up -> Slot 1 = Focus Timer, swipe up -> Slot 2 = Daily Intention
+    composeTestRule.onNodeWithTag("weather_placeholder_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("hero_focus_timer_start").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeUp() }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("daily_intention_pill").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("daily_intention_dialog").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("daily_intention_input").performTextReplacement("Deep work morning")
+    composeTestRule.onNodeWithTag("daily_intention_save_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("Deep work morning", savedIntention)
+
+    // Swipe down returns to Focus Timer (Slot 1)
+    composeTestRule.onNodeWithTag("home_widget_stack").performTouchInput { swipeDown() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("hero_focus_timer_start").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("app_row_com.cal").performTouchInput { longClick() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("Move down").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(1, moveDelta)
+
+    composeTestRule.onNodeWithTag("app_row_com.cal").performTouchInput { longClick() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithText("New event").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("new_event", launchedShortcutId)
+  }
+
+  @Test
+  @Config(sdk = [36], qualifiers = "w840dp-h680dp-xhdpi")
+  fun `home screen switches to two-pane responsive layout on tablet widths`() {
+    val uiState =
+      LauncherUiState(
+        isLoading = false,
+        allApps = listOf(sampleCalendar, sampleNotes),
+        allVisibleApps = listOf(sampleCalendar, sampleNotes),
+        favoriteApps = listOf(sampleCalendar, sampleNotes),
+        settings = LauncherSettings(hasCompletedOnboarding = true, reducedMotionEnabled = true),
+      )
+
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        HomeScreen(
+          uiState = uiState,
+          onOpenDrawer = { _, _ -> },
+          onOpenSettings = {},
+          onClockClick = {},
+          onRefreshWeather = {},
+          onOpenCalendar = {},
+          onExpandNotificationShade = {},
+          onTriggerGestureAction = {},
+          onStartFocusTimer = {},
+          onStopFocusTimer = {},
+          onToggleFocusMode = {},
+          onLaunchApp = {},
+          onOpenAppInfo = {},
+          onRemoveFromFavorites = {},
+          onRenameApp = { _, _ -> },
+          onToggleMindfulPause = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_two_pane_layout").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("favorites_list").assertIsDisplayed()
+  }
+
+  @Test
+  fun `app drawer shows profile filters and frequent apps strip and swiping down closes back to home`() {
+    val workApp = AppInfo("Work Mail", "com.workmail", "MainActivity", null, isWorkProfile = true, userSerialNumber = 10L)
+    var selectedFilter: DrawerProfileFilter? = null
+    var launchedAppPackage: String? = null
+    var drawerClosed = false
+
+    val uiState =
+      LauncherUiState(
+        isLoading = false,
+        allApps = listOf(sampleCalendar, workApp),
+        allVisibleApps = listOf(sampleCalendar, workApp),
+        filteredDrawerApps = listOf(sampleCalendar, workApp),
+        drawerSections =
+          listOf(
+            com.example.model.AlphabetSection('C', listOf(sampleCalendar)),
+            com.example.model.AlphabetSection('W', listOf(workApp)),
+          ),
+        hasWorkProfileApps = true,
+        drawerProfileFilter = DrawerProfileFilter.ALL,
+        frequentDrawerApps = listOf(sampleCalendar.copy(dailyLaunchCount = 5)),
+        settings = LauncherSettings(hasCompletedOnboarding = true, reducedMotionEnabled = true),
+      )
+
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        AppDrawer(
+          isOpen = true,
+          focusSearchOnOpen = false,
+          initialLetter = null,
+          uiState = uiState,
+          onClose = { drawerClosed = true },
+          onSearchQueryChange = {},
+          onLaunchApp = { launchedAppPackage = it.packageName },
+          onLaunchShortcut = {},
+          onDialNumber = {},
+          onOpenUrl = {},
+          onWebSearch = {},
+          onOpenAppInfo = {},
+          onToggleFavorite = {},
+          onRenameApp = { _, _ -> },
+          onHideApp = {},
+          onToggleMindfulPause = {},
+          onSelectProfileFilter = { selectedFilter = it },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("profile_filter_work").assertIsDisplayed().performClick()
+    assertEquals(DrawerProfileFilter.WORK, selectedFilter)
+
+    composeTestRule.onNodeWithTag("frequent_apps_row").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("frequent_app_com.cal").performClick()
+    assertEquals("com.cal", launchedAppPackage)
+
+    composeTestRule.onNodeWithTag("drawer_app_list").performTouchInput { swipeDown() }
+    composeTestRule.waitForIdle()
+    assertTrue(drawerClosed)
+  }
+
+  @Test
+  fun `home screen auto-groups apps into categorical folders by usage and expands with glass-morphism panel`() {
+    val busyMusic = sampleMusic.copy(dailyLaunchCount = 8)
+    val busyCalendar = sampleCalendar.copy(dailyLaunchCount = 3)
+    var foldersState by mutableStateOf<List<ResolvedFolder>>(emptyList())
+
+    composeTestRule.setContent {
+      val uiState =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(busyMusic, busyCalendar),
+          allVisibleApps = listOf(busyMusic, busyCalendar),
+          favoriteApps = listOf(busyCalendar),
+          homeFolders = foldersState,
+          settings = LauncherSettings(hasCompletedOnboarding = true, reducedMotionEnabled = true),
+        )
+      NeonSunsetTheme {
+        HomeScreen(
+          uiState = uiState,
+          onOpenDrawer = { _, _ -> },
+          onOpenSettings = {},
+          onClockClick = {},
+          onRefreshWeather = {},
+          onOpenCalendar = {},
+          onExpandNotificationShade = {},
+          onTriggerGestureAction = {},
+          onStartFocusTimer = {},
+          onStopFocusTimer = {},
+          onToggleFocusMode = {},
+          onLaunchApp = {},
+          onOpenAppInfo = {},
+          onRemoveFromFavorites = {},
+          onRenameApp = { _, _ -> },
+          onToggleMindfulPause = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+          onAutoCategorizeFolders = {
+            val generated =
+              com.example.util.SmartFolderCategorizer.generateSmartFolders(
+                apps = listOf(busyMusic, busyCalendar)
+              )
+            val byKey = listOf(busyMusic, busyCalendar).associateBy { it.componentKey }
+            foldersState =
+              generated.map { folder ->
+                ResolvedFolder(
+                  folder = folder,
+                  apps = folder.componentKeys.mapNotNull { byKey[it] },
+                )
+              }
+          },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_auto_categorize_button").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+
+    // Media (8 launches) and Productivity (3 launches) smart folders are created
+    composeTestRule.onNodeWithTag("home_folder_Media").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("folder_expanded_Media").assertIsDisplayed()
+    composeTestRule.onNodeWithText("8× · ", useUnmergedTree = true).assertIsDisplayed()
+    composeTestRule.onNodeWithTag("app_row_com.music").assertIsDisplayed()
+  }
 }
+
