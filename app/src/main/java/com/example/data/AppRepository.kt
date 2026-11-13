@@ -1,5 +1,6 @@
 package com.example.data
 
+import android.app.WallpaperManager
 import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
@@ -12,11 +13,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.os.Process
@@ -28,6 +31,8 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import com.example.R
+import com.example.model.AppIconShapeProfile
 import com.example.model.AppInfo
 import com.example.model.AppShortcutItem
 import java.io.File
@@ -46,10 +51,33 @@ class AppRepository(private val context: Context) {
     }
   private val iconCacheLock = Any()
 
+  data class LoadedIconAssets(
+    val bitmap: ImageBitmap,
+    val isAdaptive: Boolean,
+    val shapeProfile: AppIconShapeProfile,
+    val foregroundBitmap: ImageBitmap? = null,
+    val accentArgb: Int? = null,
+    val hasMonochromeLayer: Boolean = false,
+  )
+
   private data class CachedIcon(
     val bitmap: ImageBitmap,
     val isAdaptive: Boolean,
-  )
+    val shapeProfile: AppIconShapeProfile,
+    val foregroundBitmap: ImageBitmap? = null,
+    val accentArgb: Int? = null,
+    val hasMonochromeLayer: Boolean = false,
+  ) {
+    fun toAssets(): LoadedIconAssets =
+      LoadedIconAssets(
+        bitmap = bitmap,
+        isAdaptive = isAdaptive,
+        shapeProfile = shapeProfile,
+        foregroundBitmap = foregroundBitmap,
+        accentArgb = accentArgb,
+        hasMonochromeLayer = hasMonochromeLayer,
+      )
+  }
 
   data class InstalledAppEntry(
     val label: String,
@@ -64,6 +92,12 @@ class AppRepository(private val context: Context) {
     val launcherActivityInfo: LauncherActivityInfo? = null,
     val appCategory: Int = android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED,
     val isSystemApp: Boolean = false,
+    val cachedShapeProfile: AppIconShapeProfile =
+      if (isAdaptiveIcon) AppIconShapeProfile.SYSTEM_ADAPTIVE
+      else AppIconShapeProfile.CUSTOM_SILHOUETTE,
+    val cachedForegroundIcon: ImageBitmap? = null,
+    val cachedAccentArgb: Int? = null,
+    val cachedHasMonochromeLayer: Boolean = false,
   ) {
     val componentKey: String
       get() =
@@ -83,25 +117,44 @@ class AppRepository(private val context: Context) {
   private fun loadFromDiskCache(componentKey: String, apkStamp: Long): CachedIcon? {
     if (apkStamp <= 0L) return null
     val hash = sha256Short(componentKey)
-    val adaptiveFile = File(diskIconDir, "${hash}_${apkStamp}_a.png")
-    val legacyFile = File(diskIconDir, "${hash}_${apkStamp}_l.png")
-    val targetFile: File
-    val isAdaptive: Boolean
-    when {
-      adaptiveFile.exists() -> {
-        targetFile = adaptiveFile
-        isAdaptive = true
+    val prefix = "${hash}_${apkStamp}_v2_"
+    val v2File =
+      diskIconDir.listFiles()?.firstOrNull { file ->
+        val name = file.name
+        name.startsWith(prefix) && name.endsWith(".png") && !name.endsWith("_fg.png")
+      } ?: return null
+
+    val metaBody = v2File.name.removePrefix(prefix).removeSuffix(".png")
+    val parts = metaBody.split('_')
+    if (parts.size < 4) return null
+    val isAdaptive = parts[0] == "a"
+    val shapeOrdinal = parts[1].toIntOrNull() ?: 0
+    val shapeProfile =
+      AppIconShapeProfile.entries.getOrElse(shapeOrdinal) {
+        if (isAdaptive) AppIconShapeProfile.SYSTEM_ADAPTIVE else AppIconShapeProfile.CUSTOM_SILHOUETTE
       }
-      legacyFile.exists() -> {
-        targetFile = legacyFile
-        isAdaptive = false
-      }
-      else -> return null
-    }
-    val decoded = runCatching { BitmapFactory.decodeFile(targetFile.absolutePath) }.getOrNull()
+    val hasMono = parts[2] == "1"
+    val accentArgb = parts[3].takeIf { it != "none" }?.toLongOrNull(16)?.toInt()
+
+    val decoded = runCatching { BitmapFactory.decodeFile(v2File.absolutePath) }.getOrNull()
       ?: return null
-    val imageBitmap = decoded.asImageBitmap()
-    val cached = CachedIcon(bitmap = imageBitmap, isAdaptive = isAdaptive)
+    val fgFile = File(diskIconDir, "${hash}_${apkStamp}_fg.png")
+    val decodedFg =
+      if (fgFile.exists()) {
+        runCatching { BitmapFactory.decodeFile(fgFile.absolutePath)?.asImageBitmap() }.getOrNull()
+      } else {
+        null
+      }
+
+    val cached =
+      CachedIcon(
+        bitmap = decoded.asImageBitmap(),
+        isAdaptive = isAdaptive,
+        shapeProfile = shapeProfile,
+        foregroundBitmap = decodedFg,
+        accentArgb = accentArgb,
+        hasMonochromeLayer = hasMono,
+      )
     synchronized(iconCacheLock) { iconCache.put(componentKey, cached) }
     return cached
   }
@@ -110,15 +163,31 @@ class AppRepository(private val context: Context) {
     componentKey: String,
     apkStamp: Long,
     bitmap: Bitmap,
+    foregroundBitmap: Bitmap?,
     isAdaptive: Boolean,
+    shapeProfile: AppIconShapeProfile,
+    accentArgb: Int?,
+    hasMonochromeLayer: Boolean,
   ) {
     if (apkStamp <= 0L) return
     runCatching {
       val hash = sha256Short(componentKey)
-      val suffix = if (isAdaptive) "a" else "l"
-      val outFile = File(diskIconDir, "${hash}_${apkStamp}_$suffix.png")
+      val adaptiveTag = if (isAdaptive) "a" else "l"
+      val monoTag = if (hasMonochromeLayer) "1" else "0"
+      val accentHex = accentArgb?.let { "%08x".format(it) } ?: "none"
+      val outFile =
+        File(
+          diskIconDir,
+          "${hash}_${apkStamp}_v2_${adaptiveTag}_${shapeProfile.ordinal}_${monoTag}_${accentHex}.png",
+        )
       FileOutputStream(outFile).use { stream ->
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+      }
+      if (foregroundBitmap != null) {
+        val fgFile = File(diskIconDir, "${hash}_${apkStamp}_fg.png")
+        FileOutputStream(fgFile).use { stream ->
+          foregroundBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
       }
       pruneDiskCacheIfNeeded()
     }
@@ -179,6 +248,10 @@ class AppRepository(private val context: Context) {
               apkStamp = stamp,
               appCategory = category,
               isSystemApp = systemFlag,
+              cachedShapeProfile = cached?.shapeProfile ?: AppIconShapeProfile.CUSTOM_SILHOUETTE,
+              cachedForegroundIcon = cached?.foregroundBitmap,
+              cachedAccentArgb = cached?.accentArgb,
+              cachedHasMonochromeLayer = cached?.hasMonochromeLayer ?: false,
             )
           }
 
@@ -225,6 +298,11 @@ class AppRepository(private val context: Context) {
                     launcherActivityInfo = activityInfo,
                     appCategory = appInfo.category,
                     isSystemApp = systemFlag,
+                    cachedShapeProfile =
+                      cached?.shapeProfile ?: AppIconShapeProfile.CUSTOM_SILHOUETTE,
+                    cachedForegroundIcon = cached?.foregroundBitmap,
+                    cachedAccentArgb = cached?.accentArgb,
+                    cachedHasMonochromeLayer = cached?.hasMonochromeLayer ?: false,
                   )
                 }
               }
@@ -239,14 +317,14 @@ class AppRepository(private val context: Context) {
         .toList()
     }
 
-  suspend fun loadIconForEntry(entry: InstalledAppEntry): Pair<ImageBitmap, Boolean> =
+  suspend fun loadIconForEntry(entry: InstalledAppEntry): LoadedIconAssets =
     withContext(iconLoaderDispatcher) {
       val key = entry.componentKey
       synchronized(iconCacheLock) { iconCache.get(key) }?.let { cached ->
-        return@withContext cached.bitmap to cached.isAdaptive
+        return@withContext cached.toAssets()
       }
       loadFromDiskCache(key, entry.apkStamp)?.let { diskCached ->
-        return@withContext diskCached.bitmap to diskCached.isAdaptive
+        return@withContext diskCached.toAssets()
       }
 
       val drawable =
@@ -254,28 +332,56 @@ class AppRepository(private val context: Context) {
           ?: entry.resolveInfo?.loadIcon(packageManager)
           ?: packageManager.defaultActivityIcon
       val isAdaptive = drawable is AdaptiveIconDrawable
+      val shapeProfile = classifyDrawableShape(drawable)
       val bitmap = renderConsistentAppIcon(drawable)
-      saveToDiskCache(key, entry.apkStamp, bitmap, isAdaptive)
+      val (fgBitmap, hasMono) =
+        if (drawable is AdaptiveIconDrawable) renderAdaptiveForegroundBitmap(drawable)
+        else null to false
+      val accentArgb = extractHarmonizedAccentArgb(drawable)
+
+      saveToDiskCache(
+        componentKey = key,
+        apkStamp = entry.apkStamp,
+        bitmap = bitmap,
+        foregroundBitmap = fgBitmap,
+        isAdaptive = isAdaptive,
+        shapeProfile = shapeProfile,
+        accentArgb = accentArgb,
+        hasMonochromeLayer = hasMono,
+      )
       val imageBitmap = bitmap.asImageBitmap()
-      val cached = CachedIcon(bitmap = imageBitmap, isAdaptive = isAdaptive)
+      val fgImageBitmap = fgBitmap?.asImageBitmap()
+      val cached =
+        CachedIcon(
+          bitmap = imageBitmap,
+          isAdaptive = isAdaptive,
+          shapeProfile = shapeProfile,
+          foregroundBitmap = fgImageBitmap,
+          accentArgb = accentArgb,
+          hasMonochromeLayer = hasMono,
+        )
       synchronized(iconCacheLock) { iconCache.put(key, cached) }
-      imageBitmap to isAdaptive
+      cached.toAssets()
     }
 
   suspend fun loadInstalledApps(): List<AppInfo> {
     val entries = loadInstalledAppEntries()
     return entries.map { entry ->
-      val (icon, isAdaptive) = loadIconForEntry(entry)
+      val assets = loadIconForEntry(entry)
       AppInfo(
         label = entry.label,
         packageName = entry.packageName,
         activityName = entry.activityName,
-        icon = icon,
-        isAdaptiveIcon = isAdaptive,
+        icon = assets.bitmap,
+        isAdaptiveIcon = assets.isAdaptive,
         isWorkProfile = entry.isWorkProfile,
         userSerialNumber = entry.userSerialNumber,
         appCategory = entry.appCategory,
         isSystemApp = entry.isSystemApp,
+        shapeProfile = assets.shapeProfile,
+        adaptiveForegroundIcon = assets.foregroundBitmap,
+        adaptiveAccentArgb = assets.accentArgb,
+        hasMonochromeLayer = assets.hasMonochromeLayer,
       )
     }
   }
@@ -388,36 +494,171 @@ class AppRepository(private val context: Context) {
     }
   }
 
+  enum class WallpaperTarget {
+    HOME,
+    HOME_AND_LOCK,
+  }
+
+  sealed interface WallpaperApplyOutcome {
+    data object AppliedToSystem : WallpaperApplyOutcome
+
+    data class AppliedFallbackFile(val filePath: String) : WallpaperApplyOutcome
+
+    data object Failed : WallpaperApplyOutcome
+  }
+
+  suspend fun applyCustomWallpaper(
+    sourceUri: Uri,
+    target: WallpaperTarget = WallpaperTarget.HOME_AND_LOCK,
+  ): WallpaperApplyOutcome =
+    withContext(Dispatchers.IO) {
+      val bitmap = decodeOrientedBitmap(sourceUri) ?: return@withContext WallpaperApplyOutcome.Failed
+      try {
+        if (applyBitmapToSystemWallpaper(bitmap, target)) {
+          clearCustomWallpaper(null)
+          return@withContext WallpaperApplyOutcome.AppliedToSystem
+        }
+        val fallbackPath = saveFallbackWallpaperFile(bitmap)
+        if (fallbackPath != null) {
+          return@withContext WallpaperApplyOutcome.AppliedFallbackFile(fallbackPath)
+        }
+        WallpaperApplyOutcome.Failed
+      } finally {
+        if (!bitmap.isRecycled) {
+          bitmap.recycle()
+        }
+      }
+    }
+
+  suspend fun applyPresetSunsetWallpaper(
+    target: WallpaperTarget = WallpaperTarget.HOME_AND_LOCK,
+  ): WallpaperApplyOutcome =
+    withContext(Dispatchers.IO) {
+      val bitmap =
+        runCatching {
+          BitmapFactory.decodeResource(context.resources, R.drawable.img_miami_sunset_hero_1794549247807)
+        }.getOrNull() ?: return@withContext WallpaperApplyOutcome.Failed
+      try {
+        if (applyBitmapToSystemWallpaper(bitmap, target)) {
+          clearCustomWallpaper(null)
+          WallpaperApplyOutcome.AppliedToSystem
+        } else {
+          WallpaperApplyOutcome.Failed
+        }
+      } finally {
+        if (!bitmap.isRecycled) {
+          bitmap.recycle()
+        }
+      }
+    }
+
   suspend fun importCustomWallpaper(sourceUri: Uri): String? =
     withContext(Dispatchers.IO) {
-      runCatching {
-        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(sourceUri)?.use { stream ->
-          BitmapFactory.decodeStream(stream, null, boundsOpts)
-        }
-        val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight).coerceAtLeast(1)
-        var sampleSize = 1
-        while (maxDim / sampleSize > 1920) {
-          sampleSize *= 2
-        }
-        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        val bitmap =
-          context.contentResolver.openInputStream(sourceUri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, decodeOpts)
-          } ?: return@withContext null
-        val outFile = File(context.filesDir, "custom_wallpaper.jpg")
-        FileOutputStream(outFile).use { out ->
-          bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-        }
-        bitmap.recycle()
-        outFile.absolutePath
-      }.getOrNull()
+      val bitmap = decodeOrientedBitmap(sourceUri) ?: return@withContext null
+      try {
+        saveFallbackWallpaperFile(bitmap)
+      } finally {
+        if (!bitmap.isRecycled) bitmap.recycle()
+      }
     }
+
+  private fun decodeOrientedBitmap(sourceUri: Uri): Bitmap? =
+    runCatching {
+      val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, boundsOpts)
+      }
+      val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight).coerceAtLeast(1)
+      var sampleSize = 1
+      while (maxDim / sampleSize > 2560) {
+        sampleSize *= 2
+      }
+      val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+      val rawBitmap =
+        context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+          BitmapFactory.decodeStream(stream, null, decodeOpts)
+        } ?: return@runCatching null
+
+      val orientation =
+        context.contentResolver.openInputStream(sourceUri)?.use { stream ->
+          runCatching {
+            ExifInterface(stream).getAttributeInt(
+              ExifInterface.TAG_ORIENTATION,
+              ExifInterface.ORIENTATION_NORMAL,
+            )
+          }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+
+      val matrix = Matrix()
+      when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+          matrix.postRotate(90f)
+          matrix.preScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+          matrix.postRotate(270f)
+          matrix.preScale(-1f, 1f)
+        }
+        else -> return@runCatching rawBitmap
+      }
+
+      val transformed =
+        Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+      if (transformed !== rawBitmap) {
+        rawBitmap.recycle()
+      }
+      transformed
+    }.getOrNull()
+
+  private fun applyBitmapToSystemWallpaper(bitmap: Bitmap, target: WallpaperTarget): Boolean =
+    runCatching {
+      val wm = WallpaperManager.getInstance(context) ?: return@runCatching false
+      if (!wm.isWallpaperSupported || !wm.isSetWallpaperAllowed) return@runCatching false
+      val flags =
+        when (target) {
+          WallpaperTarget.HOME -> WallpaperManager.FLAG_SYSTEM
+          WallpaperTarget.HOME_AND_LOCK ->
+            WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
+        }
+      wm.setBitmap(bitmap, null, true, flags)
+      true
+    }.getOrDefault(false)
+
+  private fun saveFallbackWallpaperFile(bitmap: Bitmap): String? =
+    runCatching {
+      clearCustomWallpaper(null)
+      val outFile = File(context.filesDir, "custom_wallpaper_${System.currentTimeMillis()}.jpg")
+      FileOutputStream(outFile).use { out ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+      }
+      outFile.absolutePath
+    }.getOrNull()
 
   fun clearCustomWallpaper(existingPath: String?) {
     if (!existingPath.isNullOrBlank()) {
       runCatching { File(existingPath).delete() }
     }
+    runCatching {
+      context.filesDir.listFiles()?.forEach { file ->
+        if (file.name.startsWith("custom_wallpaper") && file.name.endsWith(".jpg")) {
+          file.delete()
+        }
+      }
+    }
+  }
+
+  fun openSystemWallpaperPicker(): Boolean {
+    val setWallpaperIntent = Intent(Intent.ACTION_SET_WALLPAPER)
+    val chooser =
+      Intent.createChooser(setWallpaperIntent, "Choose wallpaper").apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+      }
+    return runCatching { context.startActivity(chooser) }.isSuccess
   }
 
   fun openAppInfo(packageName: String) {
@@ -619,7 +860,220 @@ class AppRepository(private val context: Context) {
   companion object {
     const val ICON_BITMAP_SIZE_PX = 96
     private const val MAX_CACHED_ICONS = 160
-    private const val MAX_DISK_CACHED_ICONS = 220
+    private const val MAX_DISK_CACHED_ICONS = 320
+
+    fun readSystemAdaptiveIconMaskPath(): android.graphics.Path? =
+      runCatching {
+        val probe = AdaptiveIconDrawable(null, null)
+        probe.setBounds(0, 0, 100, 100)
+        val mask = probe.iconMask
+        if (mask.isEmpty) null else android.graphics.Path(mask)
+      }.getOrNull()
+
+    fun classifyDrawableShape(drawable: Drawable): AppIconShapeProfile {
+      if (drawable is AdaptiveIconDrawable) return AppIconShapeProfile.SYSTEM_ADAPTIVE
+
+      val sampleSize = 48
+      val bitmap =
+        runCatching {
+          drawable.toBitmap(width = sampleSize, height = sampleSize, config = Bitmap.Config.ARGB_8888)
+        }.getOrNull() ?: return AppIconShapeProfile.CUSTOM_SILHOUETTE
+
+      try {
+        val pixels = IntArray(sampleSize * sampleSize)
+        bitmap.getPixels(pixels, 0, sampleSize, 0, 0, sampleSize, sampleSize)
+
+        var minX = sampleSize
+        var minY = sampleSize
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until sampleSize) {
+          val row = y * sampleSize
+          for (x in 0 until sampleSize) {
+            if (((pixels[row + x] ushr 24) and 0xFF) > 48) {
+              if (x < minX) minX = x
+              if (x > maxX) maxX = x
+              if (y < minY) minY = y
+              if (y > maxY) maxY = y
+            }
+          }
+        }
+        val bw = (maxX - minX + 1)
+        val bh = (maxY - minY + 1)
+        if (bw < 8 || bh < 8) return AppIconShapeProfile.CUSTOM_SILHOUETTE
+
+        val aspect = maxOf(bw, bh).toFloat() / minOf(bw, bh).toFloat()
+        if (aspect > 1.28f) return AppIconShapeProfile.CUSTOM_SILHOUETTE
+
+        fun isOpaqueAt(fracX: Float, fracY: Float): Boolean {
+          val px = (minX + fracX * (bw - 1)).toInt().coerceIn(0, sampleSize - 1)
+          val py = (minY + fracY * (bh - 1)).toInt().coerceIn(0, sampleSize - 1)
+          return ((pixels[py * sampleSize + px] ushr 24) and 0xFF) > 48
+        }
+
+        val extremeCornersOpaque =
+          listOf(
+            isOpaqueAt(0.05f, 0.05f),
+            isOpaqueAt(0.95f, 0.05f),
+            isOpaqueAt(0.05f, 0.95f),
+            isOpaqueAt(0.95f, 0.95f),
+          ).count { it }
+
+        if (extremeCornersOpaque >= 3) {
+          return AppIconShapeProfile.ROUNDED_RECT
+        }
+
+        val cardinalsOpaque =
+          listOf(
+            isOpaqueAt(0.50f, 0.06f),
+            isOpaqueAt(0.94f, 0.50f),
+            isOpaqueAt(0.50f, 0.94f),
+            isOpaqueAt(0.06f, 0.50f),
+          ).count { it }
+
+        // Circle perimeter at 45° is at center ± 0.3535 (so 0.146 and 0.854).
+        // Outer diagonal (0.10, 0.10) is outside a circle (r = 0.566 > 0.5) yet inside rounded squares.
+        val outerDiagOpaque =
+          listOf(
+            isOpaqueAt(0.10f, 0.10f),
+            isOpaqueAt(0.90f, 0.10f),
+            isOpaqueAt(0.10f, 0.90f),
+            isOpaqueAt(0.90f, 0.90f),
+          ).count { it }
+
+        val innerCircleDiagOpaque =
+          listOf(
+            isOpaqueAt(0.20f, 0.20f),
+            isOpaqueAt(0.80f, 0.20f),
+            isOpaqueAt(0.20f, 0.80f),
+            isOpaqueAt(0.80f, 0.80f),
+          ).count { it }
+
+        return when {
+          cardinalsOpaque == 4 && outerDiagOpaque == 0 && innerCircleDiagOpaque >= 3 ->
+            AppIconShapeProfile.CIRCULAR
+          cardinalsOpaque == 4 && outerDiagOpaque >= 3 -> AppIconShapeProfile.ROUNDED_RECT
+          else -> AppIconShapeProfile.CUSTOM_SILHOUETTE
+        }
+      } finally {
+        bitmap.recycle()
+      }
+    }
+
+    fun extractHarmonizedAccentArgb(drawable: Drawable): Int? {
+      val sampleSize = 24
+      val sourceDrawable =
+        if (drawable is AdaptiveIconDrawable) drawable.background ?: drawable.foreground ?: drawable
+        else drawable
+      val bitmap =
+        runCatching {
+          sourceDrawable.toBitmap(width = sampleSize, height = sampleSize, config = Bitmap.Config.ARGB_8888)
+        }.getOrNull() ?: return null
+
+      try {
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+        var chromaticCount = 0
+        val hsv = FloatArray(3)
+        for (y in 2 until sampleSize - 2) {
+          for (x in 2 until sampleSize - 2) {
+            val px = bitmap.getPixel(x, y)
+            val a = (px ushr 24) and 0xFF
+            if (a < 96) continue
+            Color.colorToHSV(px, hsv)
+            if (hsv[1] >= 0.16f && hsv[2] >= 0.14f) {
+              sumR += Color.red(px)
+              sumG += Color.green(px)
+              sumB += Color.blue(px)
+              chromaticCount++
+            }
+          }
+        }
+        if (chromaticCount < 6) return null
+        val r = (sumR / chromaticCount).toInt().coerceIn(0, 255)
+        val g = (sumG / chromaticCount).toInt().coerceIn(0, 255)
+        val b = (sumB / chromaticCount).toInt().coerceIn(0, 255)
+        return Color.rgb(r, g, b)
+      } finally {
+        bitmap.recycle()
+      }
+    }
+
+    fun renderAdaptiveForegroundBitmap(drawable: AdaptiveIconDrawable): Pair<Bitmap?, Boolean> {
+      val size = ICON_BITMAP_SIZE_PX
+      val mono =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) drawable.monochrome else null
+      val bleed = (size * 0.25f).toInt()
+      val bounds = Rect(-bleed, -bleed, size + bleed, size + bleed)
+
+      if (mono != null) {
+        val raw = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(raw)
+        mono.bounds = bounds
+        mono.draw(canvas)
+
+        val pixels = IntArray(size * size)
+        raw.getPixels(pixels, 0, size, 0, 0, size, size)
+        for (i in pixels.indices) {
+          val a = (pixels[i] ushr 24) and 0xFF
+          pixels[i] = Color.argb(a, 255, 255, 255)
+        }
+        val whiteSilhouette = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        whiteSilhouette.setPixels(pixels, 0, size, 0, 0, size, size)
+        val contentBounds = findOpaqueBounds(whiteSilhouette, pixels)
+        val scaled =
+          centerScaleBounds(
+            source = whiteSilhouette,
+            contentBounds = contentBounds,
+            size = size,
+            targetFillFraction = 0.72f,
+            bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+          )
+        raw.recycle()
+        whiteSilhouette.recycle()
+        return scaled to true
+      }
+
+      val fg = drawable.foreground ?: return null to false
+      val fgBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+      val fgCanvas = Canvas(fgBitmap)
+      fg.bounds = bounds
+      fg.draw(fgCanvas)
+
+      if (!hasTransparentCorners(fgBitmap)) {
+        fgBitmap.recycle()
+        return null to false
+      }
+
+      val pixels = IntArray(size * size)
+      val fgBounds = findOpaqueBounds(fgBitmap, pixels)
+      val scaled =
+        centerScaleBounds(
+          source = fgBitmap,
+          contentBounds = fgBounds,
+          size = size,
+          targetFillFraction = 0.72f,
+          bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+        )
+      fgBitmap.recycle()
+      // Convert extracted transparent-background foreground into luminance-weighted crisp white glyph
+      scaled.getPixels(pixels, 0, size, 0, 0, size, size)
+      for (i in pixels.indices) {
+        val px = pixels[i]
+        val a = (px ushr 24) and 0xFF
+        if (a <= 16) {
+          pixels[i] = 0
+        } else {
+          val lum =
+            (0.299f * Color.red(px) + 0.587f * Color.green(px) + 0.114f * Color.blue(px)) / 255f
+          val balancedAlpha = (a * (0.48f + lum * 0.52f)).toInt().coerceIn(0, 255)
+          pixels[i] = Color.argb(balancedAlpha, 255, 255, 255)
+        }
+      }
+      scaled.setPixels(pixels, 0, size, 0, 0, size, size)
+      return scaled to false
+    }
 
     internal fun sha256Short(value: String): String {
       val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
@@ -726,7 +1180,7 @@ class AppRepository(private val context: Context) {
             }
             if (opaqueWindow) {
               val edgeMag = maxChannelSobelMagnitude(pixels, size, x, y)
-              val normalizedEdge = ((edgeMag - 135f) / 145f).coerceIn(0f, 1f)
+              val normalizedEdge = ((edgeMag - 115f) / 145f).coerceIn(0f, 1f)
               if (normalizedEdge > 0f) {
                 internalEdges[idx] = normalizedEdge
               }

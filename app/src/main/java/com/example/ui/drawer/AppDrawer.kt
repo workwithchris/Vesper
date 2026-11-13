@@ -267,7 +267,8 @@ fun AppDrawer(
       }
 
     val hasBackdrop =
-      uiState.settings.coastalBackdropEnabled ||
+      uiState.settings.useSystemWallpaper ||
+        uiState.settings.coastalBackdropEnabled ||
         !uiState.settings.customWallpaperPath.isNullOrBlank()
 
     Box(

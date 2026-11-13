@@ -596,20 +596,194 @@ class LauncherModelsTest {
 
     val original =
       LauncherSettings(
+        useSystemWallpaper = false,
+        wallpaperDimPercent = 10,
         autoLaunchSingleMatch = true,
         bottomAlignFavorites = true,
         leftHandedScrubber = true,
         lockHiddenApps = true,
         quickScratchpadText = "Call Alex at 4pm",
       )
+    assertTrue(LauncherSettings().useSystemWallpaper)
+    assertEquals(40, LauncherSettings().wallpaperDimPercent)
     val json = com.example.data.SettingsRepository.encodeSettingsBackupJson(original)
     val restored = com.example.data.SettingsRepository.decodeSettingsBackupJson(json)
     assertNotNull(restored)
+    assertFalse(restored?.useSystemWallpaper ?: true)
+    assertEquals(10, restored?.wallpaperDimPercent)
     assertTrue(restored?.autoLaunchSingleMatch == true)
     assertTrue(restored?.bottomAlignFavorites == true)
     assertTrue(restored?.leftHandedScrubber == true)
     assertTrue(restored?.lockHiddenApps == true)
     assertEquals("Call Alex at 4pm", restored?.quickScratchpadText)
+  }
+
+  @Test
+  fun `WallpaperParallaxMath computes multi-plane depth separation, symmetry, clamping, and reduced motion`() {
+    val widthPx = 1080f
+
+    // Center position (page 1 / progress 0.5) has zero horizontal offset and centered system wallpaper
+    val center =
+      com.example.ui.home.WallpaperParallaxMath.computeHorizontalDepth(
+        widthPx = widthPx,
+        pageProgress = 0.5f,
+        tiltX = 0f,
+        tiltPxPerUnit = 16f,
+        reducedMotion = false,
+      )
+    assertEquals(0f, center.backdropTranslationXPx, 0.001f)
+    assertEquals(0f, center.skyBloomTranslationXPx, 0.001f)
+    assertEquals(0f, center.shorelineTranslationXPx, 0.001f)
+    assertEquals(0f, center.weatherTranslationXPx, 0.001f)
+    assertEquals(0.5f, center.systemWallpaperXOffset, 0.001f)
+
+    // First page (0f) and last page (1f) are exact mirror opposites with progressive plane speeds
+    val left =
+      com.example.ui.home.WallpaperParallaxMath.computeHorizontalDepth(
+        widthPx = widthPx,
+        pageProgress = 0f,
+        tiltX = 0f,
+        tiltPxPerUnit = 16f,
+        reducedMotion = false,
+      )
+    val right =
+      com.example.ui.home.WallpaperParallaxMath.computeHorizontalDepth(
+        widthPx = widthPx,
+        pageProgress = 1f,
+        tiltX = 0f,
+        tiltPxPerUnit = 16f,
+        reducedMotion = false,
+      )
+    assertEquals(0f, left.systemWallpaperXOffset, 0.001f)
+    assertEquals(1f, right.systemWallpaperXOffset, 0.001f)
+    assertEquals(-left.backdropTranslationXPx, right.backdropTranslationXPx, 0.01f)
+    assertEquals(-left.shorelineTranslationXPx, right.shorelineTranslationXPx, 0.01f)
+
+    // Near shoreline shifts faster than sky bloom, which shifts faster than weather & distant backdrop
+    assertTrue(kotlin.math.abs(right.backdropTranslationXPx) < kotlin.math.abs(right.weatherTranslationXPx))
+    assertTrue(kotlin.math.abs(right.weatherTranslationXPx) < kotlin.math.abs(right.skyBloomTranslationXPx))
+    assertTrue(kotlin.math.abs(right.skyBloomTranslationXPx) < kotlin.math.abs(right.shorelineTranslationXPx))
+    // Distant backdrop stays within 1.24x scale safety margin (12% of widthPx per side)
+    assertTrue(kotlin.math.abs(right.backdropTranslationXPx) < widthPx * 0.12f)
+
+    // Overscroll clamps systemWallpaperXOffset to [0, 1] and caps backdrop translation
+    val overscrolled =
+      com.example.ui.home.WallpaperParallaxMath.computeHorizontalDepth(
+        widthPx = widthPx,
+        pageProgress = 2.0f,
+        tiltX = 0f,
+        tiltPxPerUnit = 16f,
+        reducedMotion = false,
+      )
+    assertEquals(1f, overscrolled.systemWallpaperXOffset, 0.001f)
+    assertTrue(kotlin.math.abs(overscrolled.backdropTranslationXPx) < widthPx * 0.12f)
+
+    // Reduced motion zeroes out all dynamic translations while preserving normalized page fraction
+    val reduced =
+      com.example.ui.home.WallpaperParallaxMath.computeHorizontalDepth(
+        widthPx = widthPx,
+        pageProgress = 1f,
+        tiltX = 0.8f,
+        tiltPxPerUnit = 16f,
+        reducedMotion = true,
+      )
+    assertEquals(0f, reduced.backdropTranslationXPx, 0.001f)
+    assertEquals(0f, reduced.skyBloomTranslationXPx, 0.001f)
+    assertEquals(0f, reduced.shorelineTranslationXPx, 0.001f)
+    assertEquals(0f, reduced.weatherTranslationXPx, 0.001f)
+  }
+
+  @Test
+  fun `AppRepository classifyDrawableShape distinguishes adaptive, circular, rounded-rect, and custom silhouettes`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+
+    val adaptive =
+      AdaptiveIconDrawable(
+        ColorDrawable(Color.BLUE),
+        BitmapDrawable(context.resources, Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)),
+      )
+    assertEquals(
+      com.example.model.AppIconShapeProfile.SYSTEM_ADAPTIVE,
+      AppRepository.classifyDrawableShape(adaptive),
+    )
+
+    // Circular bitmap icon
+    val circleBmp = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+    Canvas(circleBmp).drawCircle(32f, 32f, 26f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED })
+    assertEquals(
+      com.example.model.AppIconShapeProfile.CIRCULAR,
+      AppRepository.classifyDrawableShape(BitmapDrawable(context.resources, circleBmp)),
+    )
+
+    // Rounded-rect bitmap icon
+    val rectBmp = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+    Canvas(rectBmp).drawRoundRect(
+      4f,
+      4f,
+      60f,
+      60f,
+      10f,
+      10f,
+      Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.GREEN },
+    )
+    assertEquals(
+      com.example.model.AppIconShapeProfile.ROUNDED_RECT,
+      AppRepository.classifyDrawableShape(BitmapDrawable(context.resources, rectBmp)),
+    )
+
+    // Irregular L-shaped custom silhouette
+    val customBmp = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+    val customCanvas = Canvas(customBmp)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.CYAN }
+    customCanvas.drawRect(8f, 8f, 24f, 56f, paint)
+    customCanvas.drawRect(8f, 40f, 56f, 56f, paint)
+    assertEquals(
+      com.example.model.AppIconShapeProfile.CUSTOM_SILHOUETTE,
+      AppRepository.classifyDrawableShape(BitmapDrawable(context.resources, customBmp)),
+    )
+  }
+
+  @Test
+  fun `AppRepository extractHarmonizedAccentArgb and renderAdaptiveForegroundBitmap work across monochrome and standard adaptive icons`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val fgBmp = Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888)
+    Canvas(fgBmp).drawCircle(54f, 54f, 22f, Paint().apply { color = Color.WHITE })
+    val fg = BitmapDrawable(context.resources, fgBmp)
+    val bg = ColorDrawable(Color.rgb(32, 168, 224))
+    val mono = BitmapDrawable(context.resources, fgBmp)
+
+    val adaptiveWithMono = AdaptiveIconDrawable(bg, fg, mono)
+    val accent = AppRepository.extractHarmonizedAccentArgb(adaptiveWithMono)
+    assertNotNull(accent)
+    assertTrue(Color.blue(accent!!) > Color.red(accent))
+
+    val (monoExtracted, hasMono) = AppRepository.renderAdaptiveForegroundBitmap(adaptiveWithMono)
+    assertTrue(hasMono)
+    assertNotNull(monoExtracted)
+    // Center glyph pixel is opaque white
+    assertTrue(Color.alpha(monoExtracted!!.getPixel(monoExtracted.width / 2, monoExtracted.height / 2)) > 200)
+
+    // Grayscale drawable yields null accent
+    val neutral = ColorDrawable(Color.DKGRAY)
+    assertEquals(null, AppRepository.extractHarmonizedAccentArgb(neutral))
+  }
+
+  @Test
+  fun `SettingsRepository backup roundtrips system adaptive icon shape and individual shape flag`() {
+    val defaults = LauncherSettings()
+    assertEquals(AdaptiveIconShape.SYSTEM, defaults.iconShape)
+    assertTrue(defaults.respectIndividualIconShapes)
+
+    val custom =
+      LauncherSettings(
+        iconShape = AdaptiveIconShape.SYSTEM,
+        respectIndividualIconShapes = false,
+      )
+    val json = com.example.data.SettingsRepository.encodeSettingsBackupJson(custom)
+    val restored = com.example.data.SettingsRepository.decodeSettingsBackupJson(json)
+    assertNotNull(restored)
+    assertEquals(AdaptiveIconShape.SYSTEM, restored?.iconShape)
+    assertFalse(restored?.respectIndividualIconShapes ?: true)
   }
 }
 

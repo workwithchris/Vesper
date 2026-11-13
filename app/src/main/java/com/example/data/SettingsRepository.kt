@@ -83,6 +83,7 @@ class SettingsRepository(private val context: Context) {
     val CLOCK_STYLE = stringPreferencesKey("clock_style")
     val SHOW_CLOCK_SECONDS = booleanPreferencesKey("show_clock_seconds")
     val SHOW_BATTERY_INDICATOR = booleanPreferencesKey("show_battery_indicator")
+    val USE_SYSTEM_WALLPAPER = booleanPreferencesKey("use_system_wallpaper")
     val CUSTOM_WALLPAPER_PATH = stringPreferencesKey("custom_wallpaper_path")
     val WALLPAPER_DIM_PERCENT = intPreferencesKey("wallpaper_dim_percent")
     val DAILY_INTENTION = stringPreferencesKey("daily_intention")
@@ -93,6 +94,7 @@ class SettingsRepository(private val context: Context) {
     val LOCK_HIDDEN_APPS = booleanPreferencesKey("lock_hidden_apps")
     val QUICK_SCRATCHPAD_TEXT = stringPreferencesKey("quick_scratchpad_text")
     val CONTEXTUAL_LAUNCH_COUNTS_JSON = stringPreferencesKey("contextual_launch_counts_json")
+    val RESPECT_INDIVIDUAL_SHAPES = booleanPreferencesKey("respect_individual_icon_shapes")
   }
 
   private fun todayKey(): String =
@@ -117,7 +119,9 @@ class SettingsRepository(private val context: Context) {
       LauncherSettings(
         themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE] ?: ThemeMode.DARK.name),
         accent = AccentOption.fromName(prefs[Keys.ACCENT]),
-        iconShape = AdaptiveIconShape.fromName(prefs[Keys.ICON_SHAPE]),
+        iconShape =
+          prefs[Keys.ICON_SHAPE]?.let(AdaptiveIconShape::fromName) ?: AdaptiveIconShape.SYSTEM,
+        respectIndividualIconShapes = prefs[Keys.RESPECT_INDIVIDUAL_SHAPES] ?: true,
         coastalBackdropEnabled = prefs[Keys.COASTAL_BACKDROP] ?: true,
         alphabetIndexEnabled = prefs[Keys.ALPHABET_INDEX] ?: true,
         hideAppLabels = prefs[Keys.HIDE_LABELS] ?: false,
@@ -153,8 +157,9 @@ class SettingsRepository(private val context: Context) {
         clockStyle = ClockStyle.fromName(prefs[Keys.CLOCK_STYLE]),
         showClockSeconds = prefs[Keys.SHOW_CLOCK_SECONDS] ?: false,
         showBatteryIndicator = prefs[Keys.SHOW_BATTERY_INDICATOR] ?: true,
+        useSystemWallpaper = prefs[Keys.USE_SYSTEM_WALLPAPER] ?: true,
         customWallpaperPath = prefs[Keys.CUSTOM_WALLPAPER_PATH]?.takeIf { it.isNotBlank() },
-        wallpaperDimPercent = (prefs[Keys.WALLPAPER_DIM_PERCENT] ?: 55).coerceIn(20, 85),
+        wallpaperDimPercent = (prefs[Keys.WALLPAPER_DIM_PERCENT] ?: 40).coerceIn(0, 85),
         dailyIntention = prefs[Keys.DAILY_INTENTION] ?: "",
         widgetStackEnabled = prefs[Keys.WIDGET_STACK_ENABLED] ?: true,
         autoLaunchSingleMatch = prefs[Keys.AUTO_LAUNCH_SINGLE_MATCH] ?: false,
@@ -205,6 +210,10 @@ class SettingsRepository(private val context: Context) {
 
   suspend fun setIconShape(iconShape: AdaptiveIconShape) {
     context.launcherDataStore.edit { it[Keys.ICON_SHAPE] = iconShape.name }
+  }
+
+  suspend fun setRespectIndividualIconShapes(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.RESPECT_INDIVIDUAL_SHAPES] = enabled }
   }
 
   suspend fun setCoastalBackdropEnabled(enabled: Boolean) {
@@ -366,6 +375,10 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.edit { it[Keys.SHOW_BATTERY_INDICATOR] = enabled }
   }
 
+  suspend fun setUseSystemWallpaper(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.USE_SYSTEM_WALLPAPER] = enabled }
+  }
+
   suspend fun setCustomWallpaperPath(path: String?) {
     context.launcherDataStore.edit { prefs ->
       if (path.isNullOrBlank()) prefs.remove(Keys.CUSTOM_WALLPAPER_PATH)
@@ -374,7 +387,7 @@ class SettingsRepository(private val context: Context) {
   }
 
   suspend fun setWallpaperDimPercent(percent: Int) {
-    context.launcherDataStore.edit { it[Keys.WALLPAPER_DIM_PERCENT] = percent.coerceIn(20, 85) }
+    context.launcherDataStore.edit { it[Keys.WALLPAPER_DIM_PERCENT] = percent.coerceIn(0, 85) }
   }
 
   suspend fun setDailyIntention(intention: String) {
@@ -419,6 +432,7 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.THEME_MODE] = imported.themeMode.name
       prefs[Keys.ACCENT] = imported.accent.name
       prefs[Keys.ICON_SHAPE] = imported.iconShape.name
+      prefs[Keys.RESPECT_INDIVIDUAL_SHAPES] = imported.respectIndividualIconShapes
       prefs[Keys.COASTAL_BACKDROP] = imported.coastalBackdropEnabled
       prefs[Keys.ALPHABET_INDEX] = imported.alphabetIndexEnabled
       prefs[Keys.HIDE_LABELS] = imported.hideAppLabels
@@ -447,6 +461,7 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.CLOCK_STYLE] = imported.clockStyle.name
       prefs[Keys.SHOW_CLOCK_SECONDS] = imported.showClockSeconds
       prefs[Keys.SHOW_BATTERY_INDICATOR] = imported.showBatteryIndicator
+      prefs[Keys.USE_SYSTEM_WALLPAPER] = imported.useSystemWallpaper
       prefs[Keys.WALLPAPER_DIM_PERCENT] = imported.wallpaperDimPercent
       if (imported.dailyIntention.isNotBlank()) prefs[Keys.DAILY_INTENTION] = imported.dailyIntention
       else prefs.remove(Keys.DAILY_INTENTION)
@@ -512,7 +527,8 @@ class SettingsRepository(private val context: Context) {
       prefs.remove(Keys.FOLDERS_JSON)
       prefs.remove(Keys.HIDDEN_KEYS)
       prefs.remove(Keys.CUSTOM_LABELS_JSON)
-      prefs[Keys.ICON_SHAPE] = AdaptiveIconShape.ROUNDED_SQUARE.name
+      prefs[Keys.ICON_SHAPE] = AdaptiveIconShape.SYSTEM.name
+      prefs[Keys.RESPECT_INDIVIDUAL_SHAPES] = true
       prefs[Keys.COASTAL_BACKDROP] = true
       prefs[Keys.ALPHABET_INDEX] = true
       prefs[Keys.HIDE_LABELS] = false
@@ -524,7 +540,8 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.CLOCK_STYLE] = ClockStyle.NEON_HORIZON.name
       prefs[Keys.SHOW_CLOCK_SECONDS] = false
       prefs[Keys.SHOW_BATTERY_INDICATOR] = true
-      prefs[Keys.WALLPAPER_DIM_PERCENT] = 55
+      prefs[Keys.USE_SYSTEM_WALLPAPER] = true
+      prefs[Keys.WALLPAPER_DIM_PERCENT] = 40
       prefs.remove(Keys.CUSTOM_WALLPAPER_PATH)
       prefs.remove(Keys.DAILY_INTENTION)
       prefs[Keys.WIDGET_STACK_ENABLED] = true
@@ -616,6 +633,7 @@ class SettingsRepository(private val context: Context) {
         put("themeMode", s.themeMode.name)
         put("accent", s.accent.name)
         put("iconShape", s.iconShape.name)
+        put("respectIndividualShapes", s.respectIndividualIconShapes)
         put("coastalBackdrop", s.coastalBackdropEnabled)
         put("alphabetIndex", s.alphabetIndexEnabled)
         put("hideLabels", s.hideAppLabels)
@@ -640,6 +658,7 @@ class SettingsRepository(private val context: Context) {
         put("clockStyle", s.clockStyle.name)
         put("showSeconds", s.showClockSeconds)
         put("showBattery", s.showBatteryIndicator)
+        put("useSystemWallpaper", s.useSystemWallpaper)
         put("wallpaperDim", s.wallpaperDimPercent)
         put("dailyIntention", s.dailyIntention)
         put("widgetStack", s.widgetStackEnabled)
@@ -693,7 +712,10 @@ class SettingsRepository(private val context: Context) {
         LauncherSettings(
           themeMode = ThemeMode.fromName(obj.optString("themeMode", ThemeMode.DARK.name)),
           accent = AccentOption.fromName(obj.optString("accent")),
-          iconShape = AdaptiveIconShape.fromName(obj.optString("iconShape")),
+          iconShape =
+            if (obj.has("iconShape")) AdaptiveIconShape.fromName(obj.optString("iconShape"))
+            else AdaptiveIconShape.SYSTEM,
+          respectIndividualIconShapes = obj.optBoolean("respectIndividualShapes", true),
           coastalBackdropEnabled = obj.optBoolean("coastalBackdrop", true),
           alphabetIndexEnabled = obj.optBoolean("alphabetIndex", true),
           hideAppLabels = obj.optBoolean("hideLabels", false),
@@ -718,7 +740,8 @@ class SettingsRepository(private val context: Context) {
           clockStyle = ClockStyle.fromName(obj.optString("clockStyle")),
           showClockSeconds = obj.optBoolean("showSeconds", false),
           showBatteryIndicator = obj.optBoolean("showBattery", true),
-          wallpaperDimPercent = obj.optInt("wallpaperDim", 55).coerceIn(20, 85),
+          useSystemWallpaper = obj.optBoolean("useSystemWallpaper", true),
+          wallpaperDimPercent = obj.optInt("wallpaperDim", 40).coerceIn(0, 85),
           dailyIntention = obj.optString("dailyIntention", ""),
           widgetStackEnabled = obj.optBoolean("widgetStack", true),
           autoLaunchSingleMatch = obj.optBoolean("autoLaunchSingle", false),

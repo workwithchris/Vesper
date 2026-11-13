@@ -1,5 +1,6 @@
 package com.example.ui.home
 
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -10,9 +11,9 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -37,20 +38,28 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.NightsStay
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Thunderstorm
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material.icons.outlined.WbSunny
@@ -60,14 +69,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,9 +91,13 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -105,6 +121,7 @@ import com.example.ui.components.RenameAppDialog
 import com.example.ui.components.WeatherCityPickerDialog
 import com.example.ui.theme.CoastalDayWash
 import com.example.ui.theme.DangerRed
+import com.example.ui.theme.GeistMonoNumericStyle
 import com.example.ui.theme.WeatherHeatCoral
 import com.example.ui.theme.WeatherHeatGold
 import com.example.ui.theme.WeatherRainCyan
@@ -118,6 +135,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -149,9 +167,12 @@ fun HomeScreen(
   onAutoCategorizeFolders: () -> Unit = {},
   onSaveQuickScratchpad: (String) -> Unit = {},
   isDrawerOpen: Boolean = false,
+  homeIntentTrigger: Int = 0,
 ) {
   val context = LocalContext.current
+  val view = LocalView.current
   val lifecycleOwner = LocalLifecycleOwner.current
+  val coroutineScope = rememberCoroutineScope()
   var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
   var renameTarget by remember { mutableStateOf<AppInfo?>(null) }
   var editingFolder by remember { mutableStateOf<AppFolder?>(null) }
@@ -163,6 +184,7 @@ fun HomeScreen(
   var batteryPercentState by remember { mutableStateOf<Int?>(null) }
   val hapticsEnabled = uiState.settings.hapticFeedbackEnabled
   val launcherHaptics = rememberLauncherHaptics(hapticsEnabled)
+  val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
 
   BackHandler(enabled = expandedFolderIds.isNotEmpty()) {
     expandedFolderIds = emptySet()
@@ -215,6 +237,48 @@ fun HomeScreen(
   }
 
   val effectiveReducedMotion = uiState.settings.reducedMotionEnabled || systemLowPowerMode
+  val pageParallaxProgress by
+    remember(pagerState) {
+      derivedStateOf {
+        val span = (pagerState.pageCount - 1).coerceAtLeast(1).toFloat()
+        ((pagerState.currentPage + pagerState.currentPageOffsetFraction) / span)
+          .coerceIn(-0.15f, 1.15f)
+      }
+    }
+
+  BackHandler(enabled = pagerState.currentPage > 0 && expandedFolderIds.isEmpty() && !isDrawerOpen) {
+    coroutineScope.launch {
+      if (effectiveReducedMotion) pagerState.scrollToPage(0)
+      else pagerState.animateScrollToPage(0)
+    }
+  }
+
+  LaunchedEffect(homeIntentTrigger) {
+    if (homeIntentTrigger > 0 && pagerState.currentPage != 0) {
+      if (effectiveReducedMotion) pagerState.scrollToPage(0)
+      else pagerState.animateScrollToPage(0)
+    }
+  }
+
+  val wallpaperManager = remember(context) { WallpaperManager.getInstance(context) }
+  LaunchedEffect(uiState.settings.useSystemWallpaper, pagerState.pageCount) {
+    if (uiState.settings.useSystemWallpaper) {
+      val steps = (pagerState.pageCount - 1).coerceAtLeast(1)
+      runCatching {
+        wallpaperManager.setWallpaperOffsetSteps(1f / steps.toFloat(), 0f)
+      }
+    }
+  }
+  LaunchedEffect(pageParallaxProgress, uiState.settings.useSystemWallpaper, effectiveReducedMotion) {
+    val token = view.windowToken
+    if (uiState.settings.useSystemWallpaper && token != null) {
+      val targetX = if (effectiveReducedMotion) 0.5f else pageParallaxProgress.coerceIn(0f, 1f)
+      runCatching {
+        wallpaperManager.setWallpaperOffsets(token, targetX, 0.5f)
+      }
+    }
+  }
+
   val timeFormatter =
     remember(showClockSeconds) {
       SimpleDateFormat(if (showClockSeconds) "h:mm:ss" else "h:mm", Locale.getDefault())
@@ -273,87 +337,133 @@ fun HomeScreen(
       }
     }
 
-  val hasCustomWallpaper = !uiState.settings.customWallpaperPath.isNullOrBlank()
+  val edgeOverscrollConnection =
+    remember(
+      pagerState,
+      uiState.settings.swipeLeftAction,
+      uiState.settings.swipeRightAction,
+      launcherHaptics,
+      onTriggerGestureAction,
+    ) {
+      object : NestedScrollConnection {
+        private var leftEdgeOverscroll = 0f
+        private var rightEdgeOverscroll = 0f
+        private var triggeredInGesture = false
 
-  Box(
-    modifier =
-      modifier
-        .fillMaxSize()
-        .nestedScroll(drawerSwipeConnection)
-        .pointerInput(uiState.settings.doubleTapAction, launcherHaptics, onTriggerGestureAction) {
-          detectTapGestures(
-            onDoubleTap = {
-              if (uiState.settings.doubleTapAction != HomeGestureAction.NONE) {
-                launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
+        override fun onPostScroll(
+          consumed: Offset,
+          available: Offset,
+          source: NestedScrollSource,
+        ): Offset {
+          if (source == NestedScrollSource.UserInput && !triggeredInGesture) {
+            if (available.x > 0f && !pagerState.canScrollBackward) {
+              rightEdgeOverscroll = 0f
+              leftEdgeOverscroll += available.x
+              if (leftEdgeOverscroll > 96f) {
+                triggeredInGesture = true
+                leftEdgeOverscroll = 0f
+                val action = uiState.settings.swipeRightAction
+                if (action != HomeGestureAction.NONE) {
+                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
+                }
+                onTriggerGestureAction(action)
               }
-              onTriggerGestureAction(uiState.settings.doubleTapAction)
-            },
-          )
+            } else if (available.x < 0f && !pagerState.canScrollForward) {
+              leftEdgeOverscroll = 0f
+              rightEdgeOverscroll += -available.x
+              if (rightEdgeOverscroll > 96f) {
+                triggeredInGesture = true
+                rightEdgeOverscroll = 0f
+                val action = uiState.settings.swipeLeftAction
+                if (action != HomeGestureAction.NONE) {
+                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
+                }
+                onTriggerGestureAction(action)
+              }
+            }
+          }
+          return Offset.Zero
         }
-        .pointerInput(
-          uiState.settings.swipeLeftAction,
-          uiState.settings.swipeRightAction,
-          launcherHaptics,
-          onTriggerGestureAction,
-        ) {
-          var dragX = 0f
-          var triggered = false
-          detectHorizontalDragGestures(
-            onDragStart = {
-              dragX = 0f
-              triggered = false
-            },
-            onHorizontalDrag = { _, delta ->
-              if (triggered) return@detectHorizontalDragGestures
-              dragX += delta
-              if (dragX < -96f) {
-                triggered = true
-                if (uiState.settings.swipeLeftAction != HomeGestureAction.NONE) {
-                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
-                }
-                onTriggerGestureAction(uiState.settings.swipeLeftAction)
-              } else if (dragX > 96f) {
-                triggered = true
-                if (uiState.settings.swipeRightAction != HomeGestureAction.NONE) {
-                  launcherHaptics.trigger(LauncherHapticEvent.DRAWER_OPEN_SWIPE)
-                }
-                onTriggerGestureAction(uiState.settings.swipeRightAction)
-              }
-            },
-          )
-        },
-    contentAlignment = Alignment.TopCenter,
-  ) {
-    if (uiState.settings.coastalBackdropEnabled || hasCustomWallpaper) {
-      val gyroParallax = rememberGyroscopeParallaxState(enabled = !effectiveReducedMotion)
 
-      CoastalGradientOverlay(
-        hourOfDay = hourOfDay,
-        reducedMotion = effectiveReducedMotion,
-        parallaxState = gyroParallax,
-        customWallpaperPath = uiState.settings.customWallpaperPath,
-        wallpaperDimPercent = uiState.settings.wallpaperDimPercent,
-      )
+        override suspend fun onPreFling(available: Velocity): Velocity {
+          leftEdgeOverscroll = 0f
+          rightEdgeOverscroll = 0f
+          triggeredInGesture = false
+          return Velocity.Zero
+        }
 
-      if (uiState.settings.coastalBackdropEnabled && !isDrawerOpen) {
-        HeroWeatherAnimationLayer(
-          weather = uiState.weather,
-          coastalPalette = coastalPalette,
-          reducedMotion = effectiveReducedMotion,
-          modifier =
-            Modifier
-              .fillMaxWidth()
-              .height(280.dp)
-              .align(Alignment.TopCenter)
-              .graphicsLayer {
-                if (!effectiveReducedMotion) {
-                  translationX = gyroParallax.offsetX * 36.dp.toPx()
-                  translationY = gyroParallax.offsetY * 26.dp.toPx()
-                }
-              },
-        )
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+          leftEdgeOverscroll = 0f
+          rightEdgeOverscroll = 0f
+          triggeredInGesture = false
+          return Velocity.Zero
+        }
       }
     }
+
+    val hasCustomWallpaper = !uiState.settings.customWallpaperPath.isNullOrBlank()
+    val usesBackdropOverlay =
+      uiState.settings.useSystemWallpaper || uiState.settings.coastalBackdropEnabled || hasCustomWallpaper
+
+    Box(
+      modifier =
+        modifier
+          .fillMaxSize()
+          .nestedScroll(drawerSwipeConnection)
+          .nestedScroll(edgeOverscrollConnection)
+          .pointerInput(uiState.settings.doubleTapAction, launcherHaptics, onTriggerGestureAction) {
+            detectTapGestures(
+              onDoubleTap = {
+                if (uiState.settings.doubleTapAction != HomeGestureAction.NONE) {
+                  launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
+                }
+                onTriggerGestureAction(uiState.settings.doubleTapAction)
+              },
+            )
+          },
+      contentAlignment = Alignment.TopCenter,
+    ) {
+      if (usesBackdropOverlay) {
+        val gyroParallax = rememberGyroscopeParallaxState(enabled = !effectiveReducedMotion)
+
+        CoastalGradientOverlay(
+          hourOfDay = hourOfDay,
+          reducedMotion = effectiveReducedMotion,
+          parallaxState = gyroParallax,
+          pageParallaxProgress = pageParallaxProgress,
+          customWallpaperPath = uiState.settings.customWallpaperPath,
+          wallpaperDimPercent = uiState.settings.wallpaperDimPercent,
+          useSystemWallpaper = uiState.settings.useSystemWallpaper,
+          coastalBackdropEnabled = uiState.settings.coastalBackdropEnabled,
+        )
+
+        if (uiState.settings.coastalBackdropEnabled && !isDrawerOpen) {
+          HeroWeatherAnimationLayer(
+            weather = uiState.weather,
+            coastalPalette = coastalPalette,
+            reducedMotion = effectiveReducedMotion,
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .height(280.dp)
+                .align(Alignment.TopCenter)
+                .graphicsLayer {
+                  val tiltX = if (effectiveReducedMotion) 0f else gyroParallax.offsetX
+                  val tiltY = if (effectiveReducedMotion) 0f else gyroParallax.offsetY
+                  val depth =
+                    WallpaperParallaxMath.computeHorizontalDepth(
+                      widthPx = size.width,
+                      pageProgress = pageParallaxProgress,
+                      tiltX = tiltX,
+                      tiltPxPerUnit = 16.dp.toPx(),
+                      reducedMotion = effectiveReducedMotion,
+                    )
+                  translationX = depth.weatherTranslationXPx
+                  translationY = tiltY * 26.dp.toPx()
+                },
+          )
+        }
+      }
 
     if (!isDrawerOpen) {
       BoxWithConstraints(
@@ -411,48 +521,101 @@ fun HomeScreen(
             )
           }
 
-          Row(modifier = Modifier.weight(0.54f).fillMaxHeight()) {
-            if (uiState.settings.alphabetIndexEnabled && uiState.settings.leftHandedScrubber) {
-              AlphabetScrubberRail(
-                activeLetter = null,
-                hapticEnabled = hapticsEnabled,
-                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
-                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp, end = 6.dp),
-              )
+          Column(modifier = Modifier.weight(0.54f).fillMaxHeight()) {
+            HorizontalPager(
+              state = pagerState,
+              beyondViewportPageCount = 1,
+              modifier = Modifier.weight(1f).fillMaxWidth().testTag("home_horizontal_pager"),
+            ) { page ->
+              when (page) {
+                0 -> {
+                  Row(modifier = Modifier.fillMaxSize().testTag("home_page_0")) {
+                    if (uiState.settings.alphabetIndexEnabled && uiState.settings.leftHandedScrubber) {
+                      AlphabetScrubberRail(
+                        activeLetter = null,
+                        hapticEnabled = hapticsEnabled,
+                        onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                        modifier = Modifier.padding(top = 16.dp, bottom = 12.dp, end = 6.dp),
+                      )
+                    }
+
+                    HomeFavoritesPane(
+                      uiState = uiState,
+                      listState = listState,
+                      expandedFolderIds = expandedFolderIds,
+                      hapticsEnabled = hapticsEnabled,
+                      launcherHaptics = launcherHaptics,
+                      onToggleExpandFolder = { folderId ->
+                        expandedFolderIds =
+                          if (folderId in expandedFolderIds) expandedFolderIds - folderId
+                          else expandedFolderIds + folderId
+                      },
+                      onLaunchApp = onLaunchApp,
+                      onOpenAppInfo = onOpenAppInfo,
+                      onRenameApp = { renameTarget = it },
+                      onToggleMindfulPause = onToggleMindfulPause,
+                      onEditFolder = { editingFolder = it },
+                      onDeleteFolder = onDeleteFolder,
+                      onRemoveFromFavorites = onRemoveFromFavorites,
+                      onMoveFavorite = onMoveFavorite,
+                      onLaunchShortcut = onLaunchShortcut,
+                      onAutoCategorizeFolders = onAutoCategorizeFolders,
+                      modifier = Modifier.weight(1f).fillMaxHeight().padding(top = 12.dp),
+                    )
+
+                    if (uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber) {
+                      AlphabetScrubberRail(
+                        activeLetter = null,
+                        hapticEnabled = hapticsEnabled,
+                        onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                        modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
+                      )
+                    }
+                  }
+                }
+                1 -> {
+                  HomeFocusDailyPage(
+                    uiState = uiState,
+                    hapticsEnabled = hapticsEnabled,
+                    launcherHaptics = launcherHaptics,
+                    onOpenIntentionDialog = { showIntentionDialog = true },
+                    onOpenScratchpadDialog = { showScratchpadDialog = true },
+                    onStartFocusTimer = onStartFocusTimer,
+                    onStopFocusTimer = onStopFocusTimer,
+                    onToggleFocusMode = onToggleFocusMode,
+                    onLaunchApp = onLaunchApp,
+                    modifier = Modifier.fillMaxSize().padding(top = 12.dp).testTag("home_page_1"),
+                  )
+                }
+                else -> {
+                  HomeAtmosSpacesPage(
+                    uiState = uiState,
+                    currentTimeMillis = currentTimeMillis,
+                    launcherHaptics = launcherHaptics,
+                    onRefreshWeather = onRefreshWeather,
+                    onShowCityPicker = { showCityPicker = true },
+                    onOpenCalendar = onOpenCalendar,
+                    onAutoCategorizeFolders = onAutoCategorizeFolders,
+                    onLaunchApp = onLaunchApp,
+                    onOpenDrawer = onOpenDrawer,
+                    modifier = Modifier.fillMaxSize().padding(top = 12.dp).testTag("home_page_2"),
+                  )
+                }
+              }
             }
 
-            HomeFavoritesPane(
-              uiState = uiState,
-              listState = listState,
-              expandedFolderIds = expandedFolderIds,
-              hapticsEnabled = hapticsEnabled,
-              launcherHaptics = launcherHaptics,
-              onToggleExpandFolder = { folderId ->
-                expandedFolderIds =
-                  if (folderId in expandedFolderIds) expandedFolderIds - folderId
-                  else expandedFolderIds + folderId
+            HomePageIndicator(
+              pageCount = pagerState.pageCount,
+              currentPage = pagerState.currentPage,
+              onSelectPage = { targetPage ->
+                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+                coroutineScope.launch {
+                  if (effectiveReducedMotion) pagerState.scrollToPage(targetPage)
+                  else pagerState.animateScrollToPage(targetPage)
+                }
               },
-              onLaunchApp = onLaunchApp,
-              onOpenAppInfo = onOpenAppInfo,
-              onRenameApp = { renameTarget = it },
-              onToggleMindfulPause = onToggleMindfulPause,
-              onEditFolder = { editingFolder = it },
-              onDeleteFolder = onDeleteFolder,
-              onRemoveFromFavorites = onRemoveFromFavorites,
-              onMoveFavorite = onMoveFavorite,
-              onLaunchShortcut = onLaunchShortcut,
-              onAutoCategorizeFolders = onAutoCategorizeFolders,
-              modifier = Modifier.weight(1f).fillMaxHeight().padding(top = 12.dp),
+              modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
             )
-
-            if (uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber) {
-              AlphabetScrubberRail(
-                activeLetter = null,
-                hapticEnabled = hapticsEnabled,
-                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
-                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
-              )
-            }
           }
         }
       } else {
@@ -460,85 +623,136 @@ fun HomeScreen(
         val rightScrubber = uiState.settings.alphabetIndexEnabled && !uiState.settings.leftHandedScrubber
 
         Column(modifier = Modifier.fillMaxSize().widthIn(max = 640.dp)) {
-          Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (leftScrubber) {
-              AlphabetScrubberRail(
-                activeLetter = null,
-                hapticEnabled = hapticsEnabled,
-                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
-                modifier = Modifier.padding(top = 136.dp, bottom = 12.dp, start = 6.dp),
-              )
-            }
+          HorizontalPager(
+            state = pagerState,
+            beyondViewportPageCount = 1,
+            modifier = Modifier.weight(1f).fillMaxWidth().testTag("home_horizontal_pager"),
+          ) { page ->
+            when (page) {
+              0 -> {
+                Row(modifier = Modifier.fillMaxSize().testTag("home_page_0")) {
+                  if (leftScrubber) {
+                    AlphabetScrubberRail(
+                      activeLetter = null,
+                      hapticEnabled = hapticsEnabled,
+                      onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                      modifier = Modifier.padding(top = 136.dp, bottom = 12.dp, start = 6.dp),
+                    )
+                  }
 
-            Column(
-              modifier =
-                Modifier
-                  .weight(1f)
-                  .fillMaxHeight()
-                  .padding(
-                    start = if (leftScrubber) 8.dp else 24.dp,
-                    end = if (rightScrubber) 8.dp else 24.dp,
-                  ),
-            ) {
-              HomeHeroBlock(
-                uiState = uiState,
-                formattedTime = formattedTime,
-                amPmLabel = amPmLabel,
-                formattedDate = formattedDate,
-                batteryPercent = batteryPercentState,
-                currentTimeMillis = currentTimeMillis,
-                effectiveReducedMotion = effectiveReducedMotion,
-                hapticsEnabled = hapticsEnabled,
-                launcherHaptics = launcherHaptics,
-                onClockClick = onClockClick,
-                onRefreshWeather = onRefreshWeather,
-                onShowCityPicker = { showCityPicker = true },
-                onOpenCalendar = onOpenCalendar,
-                onExpandNotificationShade = onExpandNotificationShade,
-                onOpenDrawer = onOpenDrawer,
-                onStartFocusTimer = onStartFocusTimer,
-                onStopFocusTimer = onStopFocusTimer,
-                onToggleFocusMode = onToggleFocusMode,
-                onOpenIntentionDialog = { showIntentionDialog = true },
-                onOpenScratchpadDialog = { showScratchpadDialog = true },
-              )
+                  Column(
+                    modifier =
+                      Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(
+                          start = if (leftScrubber) 8.dp else 24.dp,
+                          end = if (rightScrubber) 8.dp else 24.dp,
+                        ),
+                  ) {
+                    HomeHeroBlock(
+                      uiState = uiState,
+                      formattedTime = formattedTime,
+                      amPmLabel = amPmLabel,
+                      formattedDate = formattedDate,
+                      batteryPercent = batteryPercentState,
+                      currentTimeMillis = currentTimeMillis,
+                      effectiveReducedMotion = effectiveReducedMotion,
+                      hapticsEnabled = hapticsEnabled,
+                      launcherHaptics = launcherHaptics,
+                      onClockClick = onClockClick,
+                      onRefreshWeather = onRefreshWeather,
+                      onShowCityPicker = { showCityPicker = true },
+                      onOpenCalendar = onOpenCalendar,
+                      onExpandNotificationShade = onExpandNotificationShade,
+                      onOpenDrawer = onOpenDrawer,
+                      onStartFocusTimer = onStartFocusTimer,
+                      onStopFocusTimer = onStopFocusTimer,
+                      onToggleFocusMode = onToggleFocusMode,
+                      onOpenIntentionDialog = { showIntentionDialog = true },
+                      onOpenScratchpadDialog = { showScratchpadDialog = true },
+                    )
 
-              Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-              HomeFavoritesPane(
-                uiState = uiState,
-                listState = listState,
-                expandedFolderIds = expandedFolderIds,
-                hapticsEnabled = hapticsEnabled,
-                launcherHaptics = launcherHaptics,
-                onToggleExpandFolder = { folderId ->
-                  expandedFolderIds =
-                    if (folderId in expandedFolderIds) expandedFolderIds - folderId
-                    else expandedFolderIds + folderId
-                },
-                onLaunchApp = onLaunchApp,
-                onOpenAppInfo = onOpenAppInfo,
-                onRenameApp = { renameTarget = it },
-                onToggleMindfulPause = onToggleMindfulPause,
-                onEditFolder = { editingFolder = it },
-                onDeleteFolder = onDeleteFolder,
-                onRemoveFromFavorites = onRemoveFromFavorites,
-                onMoveFavorite = onMoveFavorite,
-                onLaunchShortcut = onLaunchShortcut,
-                onAutoCategorizeFolders = onAutoCategorizeFolders,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-              )
-            }
+                    HomeFavoritesPane(
+                      uiState = uiState,
+                      listState = listState,
+                      expandedFolderIds = expandedFolderIds,
+                      hapticsEnabled = hapticsEnabled,
+                      launcherHaptics = launcherHaptics,
+                      onToggleExpandFolder = { folderId ->
+                        expandedFolderIds =
+                          if (folderId in expandedFolderIds) expandedFolderIds - folderId
+                          else expandedFolderIds + folderId
+                      },
+                      onLaunchApp = onLaunchApp,
+                      onOpenAppInfo = onOpenAppInfo,
+                      onRenameApp = { renameTarget = it },
+                      onToggleMindfulPause = onToggleMindfulPause,
+                      onEditFolder = { editingFolder = it },
+                      onDeleteFolder = onDeleteFolder,
+                      onRemoveFromFavorites = onRemoveFromFavorites,
+                      onMoveFavorite = onMoveFavorite,
+                      onLaunchShortcut = onLaunchShortcut,
+                      onAutoCategorizeFolders = onAutoCategorizeFolders,
+                      modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
+                  }
 
-            if (rightScrubber) {
-              AlphabetScrubberRail(
-                activeLetter = null,
-                hapticEnabled = hapticsEnabled,
-                onLetterSelected = { letter -> onOpenDrawer(false, letter) },
-                modifier = Modifier.padding(top = 136.dp, bottom = 12.dp, end = 6.dp),
-              )
+                  if (rightScrubber) {
+                    AlphabetScrubberRail(
+                      activeLetter = null,
+                      hapticEnabled = hapticsEnabled,
+                      onLetterSelected = { letter -> onOpenDrawer(false, letter) },
+                      modifier = Modifier.padding(top = 136.dp, bottom = 12.dp, end = 6.dp),
+                    )
+                  }
+                }
+              }
+              1 -> {
+                HomeFocusDailyPage(
+                  uiState = uiState,
+                  hapticsEnabled = hapticsEnabled,
+                  launcherHaptics = launcherHaptics,
+                  onOpenIntentionDialog = { showIntentionDialog = true },
+                  onOpenScratchpadDialog = { showScratchpadDialog = true },
+                  onStartFocusTimer = onStartFocusTimer,
+                  onStopFocusTimer = onStopFocusTimer,
+                  onToggleFocusMode = onToggleFocusMode,
+                  onLaunchApp = onLaunchApp,
+                  modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).testTag("home_page_1"),
+                )
+              }
+              else -> {
+                HomeAtmosSpacesPage(
+                  uiState = uiState,
+                  currentTimeMillis = currentTimeMillis,
+                  launcherHaptics = launcherHaptics,
+                  onRefreshWeather = onRefreshWeather,
+                  onShowCityPicker = { showCityPicker = true },
+                  onOpenCalendar = onOpenCalendar,
+                  onAutoCategorizeFolders = onAutoCategorizeFolders,
+                  onLaunchApp = onLaunchApp,
+                  onOpenDrawer = onOpenDrawer,
+                  modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).testTag("home_page_2"),
+                )
+              }
             }
           }
+
+          HomePageIndicator(
+            pageCount = pagerState.pageCount,
+            currentPage = pagerState.currentPage,
+            onSelectPage = { targetPage ->
+              launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+              coroutineScope.launch {
+                if (effectiveReducedMotion) pagerState.scrollToPage(targetPage)
+                else pagerState.animateScrollToPage(targetPage)
+              }
+            },
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+          )
 
           HomeBottomActionBar(
             launcherHaptics = launcherHaptics,
@@ -971,96 +1185,19 @@ private fun HomeFavoritesPane(
                 onTap = { onLaunchApp(app) },
                 showDivider = false,
               ) { dismiss ->
-                MinimalDropdownItem(
-                  text = stringResource(R.string.app_info),
-                  icon = {
-                    Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                  },
-                  onClick = {
-                    launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                    dismiss()
-                    onOpenAppInfo(app)
-                  },
-                )
-                if (index > 0) {
-                  MinimalDropdownItem(
-                    text = "Move up",
-                    icon = {
-                      Icon(Icons.Outlined.ArrowUpward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    onClick = {
-                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                      dismiss()
-                      onMoveFavorite(app, -1)
-                    },
-                  )
-                }
-                if (index < uiState.favoriteApps.lastIndex) {
-                  MinimalDropdownItem(
-                    text = "Move down",
-                    icon = {
-                      Icon(Icons.Outlined.ArrowDownward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    onClick = {
-                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                      dismiss()
-                      onMoveFavorite(app, +1)
-                    },
-                  )
-                }
-                uiState.appShortcutsByPackage[app.packageName].orEmpty().take(3).forEach { shortcut ->
-                  MinimalDropdownItem(
-                    text = shortcut.shortLabel,
-                    icon = {
-                      Icon(Icons.Outlined.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    },
-                    onClick = {
-                      launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
-                      dismiss()
-                      onLaunchShortcut(shortcut)
-                    },
-                  )
-                }
-                MinimalDropdownItem(
-                  text = stringResource(R.string.rename_app),
-                  icon = {
-                    Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                  },
-                  onClick = {
-                    launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                    dismiss()
-                    onRenameApp(app)
-                  },
-                )
-                MinimalDropdownItem(
-                  text =
-                    stringResource(
-                      if (app.isMindfulPaused) R.string.mindful_pause_remove
-                      else R.string.mindful_pause_add
-                    ),
-                  icon = {
-                    Icon(
-                      Icons.Outlined.SelfImprovement,
-                      contentDescription = null,
-                      tint = MaterialTheme.colorScheme.primary,
-                    )
-                  },
-                  onClick = {
-                    launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
-                    dismiss()
-                    onToggleMindfulPause(app)
-                  },
-                )
-                MinimalDropdownItem(
-                  text = stringResource(R.string.remove_from_favorites),
-                  icon = {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DangerRed)
-                  },
-                  onClick = {
-                    launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                    dismiss()
-                    onRemoveFromFavorites(app)
-                  },
+                FavoriteAppContextMenuItems(
+                  app = app,
+                  index = index,
+                  totalCount = uiState.favoriteApps.size,
+                  shortcuts = uiState.appShortcutsByPackage[app.packageName].orEmpty(),
+                  launcherHaptics = launcherHaptics,
+                  dismiss = dismiss,
+                  onOpenAppInfo = onOpenAppInfo,
+                  onMoveFavorite = onMoveFavorite,
+                  onLaunchShortcut = onLaunchShortcut,
+                  onRenameApp = onRenameApp,
+                  onToggleMindfulPause = onToggleMindfulPause,
+                  onRemoveFromFavorites = onRemoveFromFavorites,
                 )
               }
             }
@@ -1072,13 +1209,121 @@ private fun HomeFavoritesPane(
 }
 
 @Composable
+private fun FavoriteAppContextMenuItems(
+  app: AppInfo,
+  index: Int,
+  totalCount: Int,
+  shortcuts: List<AppShortcutItem>,
+  launcherHaptics: LauncherHaptics,
+  dismiss: () -> Unit,
+  onOpenAppInfo: (AppInfo) -> Unit,
+  onMoveFavorite: (AppInfo, Int) -> Unit,
+  onLaunchShortcut: (AppShortcutItem) -> Unit,
+  onRenameApp: (AppInfo) -> Unit,
+  onToggleMindfulPause: (AppInfo) -> Unit,
+  onRemoveFromFavorites: (AppInfo) -> Unit,
+) {
+  MinimalDropdownItem(
+    text = stringResource(R.string.app_info),
+    icon = {
+      Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+    },
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+      dismiss()
+      onOpenAppInfo(app)
+    },
+  )
+  if (index > 0) {
+    MinimalDropdownItem(
+      text = "Move up",
+      icon = {
+        Icon(Icons.Outlined.ArrowUpward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+      },
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+        dismiss()
+        onMoveFavorite(app, -1)
+      },
+    )
+  }
+  if (index < totalCount - 1) {
+    MinimalDropdownItem(
+      text = "Move down",
+      icon = {
+        Icon(Icons.Outlined.ArrowDownward, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+      },
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+        dismiss()
+        onMoveFavorite(app, +1)
+      },
+    )
+  }
+  shortcuts.take(3).forEach { shortcut ->
+    MinimalDropdownItem(
+      text = shortcut.shortLabel,
+      icon = {
+        Icon(Icons.Outlined.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+      },
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+        dismiss()
+        onLaunchShortcut(shortcut)
+      },
+    )
+  }
+  MinimalDropdownItem(
+    text = stringResource(R.string.rename_app),
+    icon = {
+      Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+    },
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+      dismiss()
+      onRenameApp(app)
+    },
+  )
+  MinimalDropdownItem(
+    text =
+      stringResource(
+        if (app.isMindfulPaused) R.string.mindful_pause_remove
+        else R.string.mindful_pause_add
+      ),
+    icon = {
+      Icon(
+        Icons.Outlined.SelfImprovement,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+      )
+    },
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
+      dismiss()
+      onToggleMindfulPause(app)
+    },
+  )
+  MinimalDropdownItem(
+    text = stringResource(R.string.remove_from_favorites),
+    icon = {
+      Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = DangerRed)
+    },
+    onClick = {
+      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+      dismiss()
+      onRemoveFromFavorites(app)
+    },
+  )
+}
+
+@Composable
 private fun HomeBottomActionBar(
   launcherHaptics: LauncherHaptics,
   onOpenDrawer: (Boolean, Char?) -> Unit,
   onOpenSettings: () -> Unit,
   horizontalPadding: androidx.compose.ui.unit.Dp,
 ) {
-  Row(
+  Box(
     modifier =
       Modifier
         .fillMaxWidth()
@@ -1096,59 +1341,37 @@ private fun HomeBottomActionBar(
             },
           )
         }
-        .padding(horizontal = horizontalPadding, vertical = 14.dp),
-    verticalAlignment = Alignment.CenterVertically,
+        .padding(horizontal = horizontalPadding, vertical = 10.dp),
   ) {
-    Surface(
+    IconButton(
       onClick = {
         launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-        onOpenDrawer(true, null)
+        onOpenDrawer(false, null)
       },
-      shape = RoundedCornerShape(10.dp),
-      color = MaterialTheme.colorScheme.surface,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-      modifier = Modifier.weight(1f).height(48.dp).testTag("home_search_pill"),
+      modifier =
+        Modifier
+          .align(Alignment.Center)
+          .minimumInteractiveComponentSize()
+          .testTag("home_all_apps_button"),
     ) {
-      Row(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Icon(
-          imageVector = Icons.Outlined.Search,
-          contentDescription = "Search apps",
-          tint = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.size(18.dp),
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-          text = stringResource(R.string.search_apps_hint),
-          style = MaterialTheme.typography.bodyLarge,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.weight(1f),
-        )
-        Surface(
-          shape = RoundedCornerShape(6.dp),
-          color = MaterialTheme.colorScheme.surfaceVariant,
-          border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline),
-        ) {
-          Text(
-            text = "⌘K",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-          )
-        }
-      }
+      Icon(
+        imageVector = Icons.Outlined.KeyboardArrowUp,
+        contentDescription = "Open all apps",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+        modifier = Modifier.size(24.dp),
+      )
     }
-
-    Spacer(modifier = Modifier.width(12.dp))
 
     IconButton(
       onClick = {
         launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
         onOpenSettings()
       },
-      modifier = Modifier.minimumInteractiveComponentSize().testTag("settings_button"),
+      modifier =
+        Modifier
+          .align(Alignment.CenterEnd)
+          .minimumInteractiveComponentSize()
+          .testTag("settings_button"),
     ) {
       Icon(
         imageVector = Icons.Outlined.Settings,
@@ -1156,6 +1379,523 @@ private fun HomeBottomActionBar(
         tint = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.size(24.dp),
       )
+    }
+  }
+}
+
+@Composable
+private fun HomePageIndicator(
+  pageCount: Int,
+  currentPage: Int,
+  onSelectPage: (Int) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier = modifier.padding(top = 4.dp).testTag("home_page_indicator"),
+    horizontalArrangement = Arrangement.spacedBy(2.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    val pageLabels = remember { listOf("Home page", "Focus and daily page", "Atmos and spaces page") }
+    for (index in 0 until pageCount) {
+      val selected = index == currentPage
+      val label = pageLabels.getOrElse(index) { "Page ${index + 1}" }
+      Box(
+        modifier =
+          Modifier
+            .width(28.dp)
+            .height(24.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onSelectPage(index) }
+            .semantics { contentDescription = label }
+            .testTag("home_page_dot_$index"),
+        contentAlignment = Alignment.Center,
+      ) {
+        Box(
+          modifier =
+            Modifier
+              .width(if (selected) 16.dp else 5.dp)
+              .height(5.dp)
+              .clip(CircleShape)
+              .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
+              )
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun HomeFocusDailyPage(
+  uiState: LauncherUiState,
+  hapticsEnabled: Boolean,
+  launcherHaptics: LauncherHaptics,
+  onOpenIntentionDialog: () -> Unit,
+  onOpenScratchpadDialog: () -> Unit,
+  onStartFocusTimer: (Int) -> Unit,
+  onStopFocusTimer: () -> Unit,
+  onToggleFocusMode: () -> Unit,
+  onLaunchApp: (AppInfo) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val totalLaunches = remember(uiState.allVisibleApps) {
+    uiState.allVisibleApps.sumOf { it.dailyLaunchCount }
+  }
+  val topTodayApps = remember(uiState.allVisibleApps) {
+    uiState.allVisibleApps
+      .filter { it.dailyLaunchCount > 0 }
+      .sortedByDescending { it.dailyLaunchCount }
+      .take(3)
+  }
+
+  Column(
+    modifier =
+      modifier
+        .verticalScroll(rememberScrollState())
+        .padding(top = 20.dp, bottom = 12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Text(
+      text = "FOCUS & DAILY",
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    HomePageGlassCard(
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+        onOpenIntentionDialog()
+      },
+      modifier = Modifier.testTag("page1_intention_card"),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Outlined.TaskAlt,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text = "DAILY INTENTION",
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+      Text(
+        text =
+          if (uiState.settings.dailyIntention.isNotBlank()) uiState.settings.dailyIntention
+          else "Tap to anchor one quiet priority for today",
+        style = MaterialTheme.typography.titleMedium,
+        color =
+          if (uiState.settings.dailyIntention.isNotBlank()) MaterialTheme.colorScheme.onBackground
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+
+    HomePageGlassCard(modifier = Modifier.testTag("page1_focus_session_card")) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Outlined.SelfImprovement,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "FOCUS SESSION",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Text(
+          text =
+            if (uiState.isFocusModeActive) "ACTIVE · ${uiState.settings.focusEssentialComponentKeys.size} ESSENTIALS"
+            else "STANDBY",
+          style = GeistMonoNumericStyle,
+          color =
+            if (uiState.isFocusModeActive) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.height(10.dp))
+      HeroFocusTimerBar(
+        isFocusModeActive = uiState.isFocusModeActive,
+        focusTimerEndMillis = uiState.settings.focusTimerEndMillis,
+        defaultDurationMinutes = uiState.settings.focusTimerDurationMinutes,
+        hapticEnabled = hapticsEnabled,
+        onStartTimer = onStartFocusTimer,
+        onStopTimer = onStopFocusTimer,
+        onToggleFocusMode = onToggleFocusMode,
+      )
+    }
+
+    HomePageGlassCard(
+      onClick = {
+        launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+        onOpenScratchpadDialog()
+      },
+      modifier = Modifier.testTag("page1_scratchpad_card"),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          imageVector = Icons.Outlined.Edit,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text = "QUICK SCRATCHPAD",
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+      Text(
+        text =
+          if (uiState.settings.quickScratchpadText.isNotBlank()) uiState.settings.quickScratchpadText
+          else "Tap to jot a thought or quick checklist...",
+        style = MaterialTheme.typography.bodyMedium,
+        color =
+          if (uiState.settings.quickScratchpadText.isNotBlank()) MaterialTheme.colorScheme.onBackground
+          else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 5,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+
+    HomePageGlassCard(modifier = Modifier.testTag("page1_mindful_insights_card")) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = "MINDFUL INSIGHTS",
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+          text = "$totalLaunches launches · ${uiState.settings.mindfulPausedComponentKeys.size} guarded",
+          style = GeistMonoNumericStyle,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      if (topTodayApps.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        topTodayApps.forEach { app ->
+          Row(
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                  onLaunchApp(app)
+                }
+                .minimumInteractiveComponentSize()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = app.label,
+              style = MaterialTheme.typography.bodyLarge,
+              color = MaterialTheme.colorScheme.onBackground,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            Text(
+              text = "${app.dailyLaunchCount}×",
+              style = GeistMonoNumericStyle,
+              color = MaterialTheme.colorScheme.primary,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun HomeAtmosSpacesPage(
+  uiState: LauncherUiState,
+  currentTimeMillis: Long,
+  launcherHaptics: LauncherHaptics,
+  onRefreshWeather: () -> Unit,
+  onShowCityPicker: () -> Unit,
+  onOpenCalendar: () -> Unit,
+  onAutoCategorizeFolders: () -> Unit,
+  onLaunchApp: (AppInfo) -> Unit,
+  onOpenDrawer: (Boolean, Char?) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val weather = uiState.weather
+  val frequentApps = remember(uiState.allVisibleApps) {
+    uiState.allVisibleApps
+      .sortedByDescending { it.dailyLaunchCount }
+      .take(4)
+  }
+
+  Column(
+    modifier =
+      modifier
+        .verticalScroll(rememberScrollState())
+        .padding(top = 20.dp, bottom = 12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Text(
+      text = "ATMOS & SPACES",
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    HomePageGlassCard(modifier = Modifier.testTag("page2_weather_card")) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "${weather.temperatureCelsius}° · ${weather.locationName}",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+          )
+          Text(
+            text = weather.conditionLabel,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        IconButton(
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+            onRefreshWeather()
+          },
+          modifier = Modifier.minimumInteractiveComponentSize().testTag("page2_weather_refresh_button"),
+        ) {
+          Icon(
+            imageVector = Icons.Outlined.Refresh,
+            contentDescription = "Refresh weather",
+            tint = MaterialTheme.colorScheme.primary,
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Column {
+          Text(
+            text = "FEELS LIKE",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Text(
+            text = "${weather.apparentTemperatureCelsius}°C",
+            style = GeistMonoNumericStyle,
+            color = MaterialTheme.colorScheme.onBackground,
+          )
+        }
+        Column {
+          Text(
+            text = "WIND",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Text(
+            text = "${weather.windSpeedKmh} km/h",
+            style = GeistMonoNumericStyle,
+            color = MaterialTheme.colorScheme.onBackground,
+          )
+        }
+        Column {
+          Text(
+            text = "CLOUD",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Text(
+            text = "${weather.cloudCoverPercent}%",
+            style = GeistMonoNumericStyle,
+            color = MaterialTheme.colorScheme.onBackground,
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
+      TextButton(
+        onClick = {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+          onShowCityPicker()
+        },
+        modifier = Modifier.minimumInteractiveComponentSize().testTag("page2_change_city_button"),
+      ) {
+        Text("Change coastal city")
+      }
+    }
+
+    val nextEvent = uiState.nextCalendarEvent
+    if (nextEvent != null) {
+      HomePageGlassCard(
+        onClick = {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+          onOpenCalendar()
+        },
+        modifier = Modifier.testTag("page2_calendar_card"),
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Outlined.CalendarToday,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "NEXT UP",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+          text = nextEvent.title,
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.onBackground,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          text = formatRelativeEventTime(nextEvent, currentTimeMillis),
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+
+    HomePageGlassCard(modifier = Modifier.testTag("page2_spaces_card")) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = "SMART SPACES · ${uiState.homeFolders.size} FOLDERS",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        TextButton(
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
+            onAutoCategorizeFolders()
+          },
+          modifier = Modifier.minimumInteractiveComponentSize().testTag("page2_auto_group_button"),
+        ) {
+          Text("Auto-group")
+        }
+      }
+
+      if (frequentApps.isNotEmpty()) {
+        frequentApps.forEach { app ->
+          Row(
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                  launcherHaptics.trigger(LauncherHapticEvent.APP_LAUNCH)
+                  onLaunchApp(app)
+                }
+                .minimumInteractiveComponentSize()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = app.label,
+              style = MaterialTheme.typography.bodyLarge,
+              color = MaterialTheme.colorScheme.onBackground,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            if (app.dailyLaunchCount > 0) {
+              Text(
+                text = "${app.dailyLaunchCount}×",
+                style = GeistMonoNumericStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          }
+        }
+      }
+
+      TextButton(
+        onClick = {
+          launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+          onOpenDrawer(false, null)
+        },
+        modifier = Modifier.minimumInteractiveComponentSize().testTag("page2_open_drawer_button"),
+      ) {
+        Text("Browse all ${uiState.allVisibleApps.size} apps")
+      }
+    }
+  }
+}
+
+@Composable
+private fun HomePageGlassCard(
+  modifier: Modifier = Modifier,
+  onClick: (() -> Unit)? = null,
+  content: @Composable () -> Unit,
+) {
+  val shape = RoundedCornerShape(14.dp)
+  val color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+  val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+  if (onClick != null) {
+    Surface(
+      onClick = onClick,
+      shape = shape,
+      color = color,
+      border = border,
+      modifier = modifier.fillMaxWidth(),
+    ) {
+      Column(modifier = Modifier.padding(14.dp)) {
+        content()
+      }
+    }
+  } else {
+    Surface(
+      shape = shape,
+      color = color,
+      border = border,
+      modifier = modifier.fillMaxWidth(),
+    ) {
+      Column(modifier = Modifier.padding(14.dp)) {
+        content()
+      }
     }
   }
 }

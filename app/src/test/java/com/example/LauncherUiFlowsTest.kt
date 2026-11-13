@@ -24,11 +24,13 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import com.example.model.AccentOption
 import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
+import com.example.model.AppIconShapeProfile
 import com.example.model.AppInfo
 import com.example.model.AppShortcutItem
 import com.example.model.ClockStyle
@@ -137,7 +139,7 @@ class LauncherUiFlowsTest {
   }
 
   @Test
-  fun `home screen long-press weather opens city picker and horizontal swipe triggers gesture`() {
+  fun `home screen long-press weather opens city picker and outer-edge horizontal swipe triggers gesture`() {
     val uiState =
       LauncherUiState(
         isLoading = false,
@@ -149,6 +151,7 @@ class LauncherUiFlowsTest {
             hasCompletedOnboarding = true,
             reducedMotionEnabled = true,
             swipeLeftAction = HomeGestureAction.OPEN_CAMERA,
+            swipeRightAction = HomeGestureAction.OPEN_DIALER,
           ),
       )
 
@@ -179,10 +182,27 @@ class LauncherUiFlowsTest {
     }
 
     composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("weather_placeholder_card").performTouchInput { swipeLeft() }
+    // Swiping right at outer left bound (Page 0) fires swipeRightAction
+    composeTestRule.onNodeWithTag("home_page_0").performTouchInput { swipeRight() }
+    composeTestRule.waitForIdle()
+    assertEquals(HomeGestureAction.OPEN_DIALER, triggeredGesture)
+
+    // Swiping left navigates across pages 0 -> 1 -> 2, and overscrolling Page 2 fires swipeLeftAction
+    composeTestRule.onNodeWithTag("home_horizontal_pager").performTouchInput { swipeLeft() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_page_1").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("home_horizontal_pager").performTouchInput { swipeLeft() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_page_2").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("home_horizontal_pager").performTouchInput { swipeLeft() }
     composeTestRule.waitForIdle()
     assertEquals(HomeGestureAction.OPEN_CAMERA, triggeredGesture)
 
+    // Jump back to Page 0 via indicator dot and long-press weather to open city picker
+    composeTestRule.onNodeWithTag("home_page_dot_0").performClick()
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("weather_placeholder_card").performTouchInput { longClick() }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("weather_city_dialog").assertIsDisplayed()
@@ -540,8 +560,9 @@ class LauncherUiFlowsTest {
     assertTrue(drawerClosed)
     assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
 
-    // 4. Tapping search pill triggers subtle CLOCK_TICK haptic when enabled
-    composeTestRule.onNodeWithTag("home_search_pill").performClick()
+    // 4. Tapping bottom drawer chevron triggers subtle CLOCK_TICK haptic when enabled
+    composeTestRule.onNodeWithTag("home_search_pill").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("home_all_apps_button").performClick()
     composeTestRule.waitForIdle()
     assertEquals(HapticFeedbackConstants.CLOCK_TICK, shadowView.lastHapticFeedbackPerformed())
 
@@ -552,7 +573,7 @@ class LauncherUiFlowsTest {
 
     hapticsEnabled = false
     composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("home_search_pill").performClick()
+    composeTestRule.onNodeWithTag("home_all_apps_button").performClick()
     composeTestRule.waitForIdle()
     assertEquals(HapticFeedbackConstants.GESTURE_END, shadowView.lastHapticFeedbackPerformed())
   }
@@ -962,6 +983,302 @@ class LauncherUiFlowsTest {
     composeTestRule.onNodeWithTag("quick_scratchpad_save_button").performClick()
     composeTestRule.waitForIdle()
     assertEquals("Pick up espresso beans", savedScratchpad)
+  }
+
+  @Test
+  fun `coastal gradient overlay lets system wallpaper shine through when useSystemWallpaper is true`() {
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        CoastalGradientOverlay(
+          hourOfDay = 18.25f,
+          reducedMotion = true,
+          useSystemWallpaper = true,
+          wallpaperDimPercent = 35,
+          coastalBackdropEnabled = false,
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("coastal_gradient_overlay").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("sunset_parallax_illustration").assertDoesNotExist()
+  }
+
+  @Test
+  fun `settings screen shows synced phone wallpaper dialog, system picker action, and always-visible dim slider`() {
+    var systemPickerOpened = false
+    var appliedSunsetTarget: com.example.data.AppRepository.WallpaperTarget? = null
+
+    composeTestRule.setContent {
+      val state =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(sampleCalendar, sampleNotes),
+          allVisibleApps = listOf(sampleCalendar, sampleNotes),
+          settings = LauncherSettings(hasCompletedOnboarding = true, useSystemWallpaper = true),
+        )
+      NeonSunsetTheme {
+        SettingsScreen(
+          uiState = state,
+          onBack = {},
+          onSelectThemeMode = {},
+          onSelectAccent = {},
+          onSelectIconShape = {},
+          onToggleCoastalBackdrop = {},
+          onSearchWeatherCities = { emptyList() },
+          onSelectWeatherLocation = {},
+          onSaveFavorites = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+          onUnhideApp = {},
+          onToggleAlphabetIndex = {},
+          onToggleHideLabels = {},
+          onSelectSwipeLeftAction = {},
+          onSelectSwipeRightAction = {},
+          onSelectDoubleTapAction = {},
+          onToggleFocusModeManual = {},
+          onSaveFocusSchedule = { _, _, _ -> },
+          onSaveFocusEssentials = {},
+          onSelectFocusTimerDuration = {},
+          onToggleMindfulPause = {},
+          onSaveMindfulApps = {},
+          onToggleDailyLaunchCounts = {},
+          onToggleCalendarPreview = {},
+          onSelectScrollSpeed = {},
+          onToggleHapticFeedback = {},
+          onToggleReducedMotion = {},
+          onCreateDefaultHomeRoleIntent = { null },
+          onOpenHomeLauncherSettings = {},
+          onDefaultLauncherResult = {},
+          onReplayWelcomeSetup = {},
+          onResetLayout = {},
+          onApplyMiamiSunsetWallpaper = { target, onDone ->
+            appliedSunsetTarget = target
+            onDone("Miami sunset applied to phone & launcher")
+          },
+          onOpenSystemWallpaperPicker = {
+            systemPickerOpened = true
+            true
+          },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("wallpaper_dim_slider").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("settings_wallpaper_row").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("wallpaper_options_dialog").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("wallpaper_pick_both_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("wallpaper_pick_home_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("wallpaper_system_picker_button").performClick()
+    composeTestRule.waitForIdle()
+    assertTrue(systemPickerOpened)
+
+    composeTestRule.onNodeWithTag("settings_wallpaper_row").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("wallpaper_apply_sunset_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(
+      com.example.data.AppRepository.WallpaperTarget.HOME_AND_LOCK,
+      appliedSunsetTarget,
+    )
+  }
+
+  @Test
+  fun `home screen parallax pager displays animated sunset wallpaper across focus and atmos pages`() {
+    val uiState =
+      LauncherUiState(
+        isLoading = false,
+        allApps = listOf(sampleCalendar, sampleNotes, sampleMusic),
+        allVisibleApps = listOf(sampleCalendar, sampleNotes, sampleMusic),
+        favoriteApps = listOf(sampleCalendar, sampleNotes),
+        settings =
+          LauncherSettings(
+            hasCompletedOnboarding = true,
+            useSystemWallpaper = false,
+            coastalBackdropEnabled = true,
+            reducedMotionEnabled = true,
+            dailyIntention = "Deep focus morning",
+            quickScratchpadText = "Review sunset parallax curves",
+          ),
+      )
+
+    var autoGrouped = false
+    composeTestRule.setContent {
+      NeonSunsetTheme {
+        HomeScreen(
+          uiState = uiState,
+          onOpenDrawer = { _, _ -> },
+          onOpenSettings = {},
+          onClockClick = {},
+          onRefreshWeather = {},
+          onOpenCalendar = {},
+          onExpandNotificationShade = {},
+          onTriggerGestureAction = {},
+          onStartFocusTimer = {},
+          onStopFocusTimer = {},
+          onToggleFocusMode = {},
+          onLaunchApp = {},
+          onOpenAppInfo = {},
+          onRemoveFromFavorites = {},
+          onRenameApp = { _, _ -> },
+          onToggleMindfulPause = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+          onAutoCategorizeFolders = { autoGrouped = true },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("sunset_parallax_illustration").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("home_page_indicator").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("home_page_0").assertIsDisplayed()
+
+    // Navigate to Page 1 (Focus & Daily) via indicator dot
+    composeTestRule.onNodeWithTag("home_page_dot_1").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_page_1").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_intention_card").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Deep focus morning").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_scratchpad_card").assertIsDisplayed()
+
+    // Navigate to Page 2 (Atmos & Spaces) via swipeLeft and verify Auto-group button
+    composeTestRule.onNodeWithTag("home_horizontal_pager").performTouchInput { swipeLeft() }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_page_2").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page2_weather_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page2_auto_group_button").performClick()
+    composeTestRule.waitForIdle()
+    assertTrue(autoGrouped)
+  }
+
+  @Test
+  fun `home screen vertical list supports adaptive icon shapes and settings omits removed grid controls`() {
+    val adaptiveApp =
+      sampleCalendar.copy(
+        shapeProfile = AppIconShapeProfile.SYSTEM_ADAPTIVE,
+        adaptiveAccentArgb = android.graphics.Color.rgb(58, 209, 141),
+        hasMonochromeLayer = true,
+      )
+    val circularApp =
+      sampleMusic.copy(
+        shapeProfile = AppIconShapeProfile.CIRCULAR,
+        adaptiveAccentArgb = android.graphics.Color.rgb(255, 110, 90),
+      )
+    val customSilhouetteApp =
+      sampleNotes.copy(
+        shapeProfile = AppIconShapeProfile.CUSTOM_SILHOUETTE,
+      )
+
+    var respectIndividual by mutableStateOf(true)
+    var showSettings by mutableStateOf(false)
+    var launchedPkg: String? = null
+
+    composeTestRule.setContent {
+      val uiState =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(adaptiveApp, circularApp, customSilhouetteApp),
+          allVisibleApps = listOf(adaptiveApp, circularApp, customSilhouetteApp),
+          favoriteApps = listOf(adaptiveApp, circularApp, customSilhouetteApp),
+          settings =
+            LauncherSettings(
+              hasCompletedOnboarding = true,
+              reducedMotionEnabled = true,
+              iconShape = AdaptiveIconShape.SYSTEM,
+              respectIndividualIconShapes = respectIndividual,
+            ),
+        )
+      NeonSunsetTheme(
+        iconShape = uiState.settings.iconShape,
+        respectIndividualIconShapes = uiState.settings.respectIndividualIconShapes,
+      ) {
+        if (!showSettings) {
+          HomeScreen(
+            uiState = uiState,
+            onOpenDrawer = { _, _ -> },
+            onOpenSettings = { showSettings = true },
+            onClockClick = {},
+            onRefreshWeather = {},
+            onOpenCalendar = {},
+            onExpandNotificationShade = {},
+            onTriggerGestureAction = {},
+            onStartFocusTimer = {},
+            onStopFocusTimer = {},
+            onToggleFocusMode = {},
+            onLaunchApp = { launchedPkg = it.packageName },
+            onOpenAppInfo = {},
+            onRemoveFromFavorites = {},
+            onRenameApp = { _, _ -> },
+            onToggleMindfulPause = {},
+            onSaveFolder = { _, _, _ -> },
+            onDeleteFolder = {},
+          )
+        } else {
+          SettingsScreen(
+            uiState = uiState,
+            onBack = { showSettings = false },
+            onSelectThemeMode = {},
+            onSelectAccent = {},
+            onSelectIconShape = {},
+            onToggleRespectIndividualShapes = { respectIndividual = it },
+            onToggleCoastalBackdrop = {},
+            onSearchWeatherCities = { emptyList() },
+            onSelectWeatherLocation = {},
+            onSaveFavorites = {},
+            onSaveFolder = { _, _, _ -> },
+            onDeleteFolder = {},
+            onUnhideApp = {},
+            onToggleAlphabetIndex = {},
+            onToggleHideLabels = {},
+            onSelectSwipeLeftAction = {},
+            onSelectSwipeRightAction = {},
+            onSelectDoubleTapAction = {},
+            onToggleFocusModeManual = {},
+            onSaveFocusSchedule = { _, _, _ -> },
+            onSaveFocusEssentials = {},
+            onSelectFocusTimerDuration = {},
+            onToggleMindfulPause = {},
+            onSaveMindfulApps = {},
+            onToggleDailyLaunchCounts = {},
+            onToggleCalendarPreview = {},
+            onSelectScrollSpeed = {},
+            onToggleHapticFeedback = {},
+            onToggleReducedMotion = {},
+            onCreateDefaultHomeRoleIntent = { null },
+            onOpenHomeLauncherSettings = {},
+            onDefaultLauncherResult = {},
+            onReplayWelcomeSetup = {},
+            onResetLayout = {},
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("favorites_list").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("home_favorites_grid").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("home_layout_toggle_button").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("home_search_pill").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("home_all_apps_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("settings_button").assertIsDisplayed()
+
+    composeTestRule.onNodeWithTag("app_row_com.music").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("app_row_com.notes").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("app_row_com.cal").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals("com.cal", launchedPkg)
+
+    // Settings still exposes respect_individual_shapes_switch and omits removed grid controls
+    showSettings = true
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("settings_home_layout_row").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("respect_individual_shapes_switch").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(false, respectIndividual)
   }
 }
 

@@ -125,8 +125,11 @@ fun CoastalGradientOverlay(
   hourOfDay: Float,
   reducedMotion: Boolean = false,
   parallaxState: GyroscopeParallaxState? = null,
+  pageParallaxProgress: Float = 0.5f,
   customWallpaperPath: String? = null,
-  wallpaperDimPercent: Int = 55,
+  wallpaperDimPercent: Int = 40,
+  useSystemWallpaper: Boolean = false,
+  coastalBackdropEnabled: Boolean = true,
   modifier: Modifier = Modifier,
 ) {
   val isDark = LocalLauncherIsDark.current
@@ -167,15 +170,17 @@ fun CoastalGradientOverlay(
       label = "coastal_ocean_horizon",
     )
 
-  val skyAlpha = if (isDark) 0.22f else 0.16f
-  val washAlpha = if (isDark) 0.25f else 0.18f
-  val horizonAlpha = if (isDark) 0.24f else 0.19f
-  val bloomAlpha = if (isDark) 0.28f else 0.22f
+  val hasWallpaperImage = customWallpaperBitmap != null || useSystemWallpaper
+  val atmosphereScale = if (hasWallpaperImage) 0.48f else 1.0f
+  val skyAlpha = (if (isDark) 0.22f else 0.16f) * atmosphereScale
+  val washAlpha = (if (isDark) 0.25f else 0.18f) * atmosphereScale
+  val horizonAlpha = (if (isDark) 0.24f else 0.19f) * atmosphereScale
+  val bloomAlpha = (if (isDark) 0.28f else 0.22f) * atmosphereScale
 
   // Zero-allocation GPU transform animation: brushes are cached once per minute/theme change
   val driftPhase: Float
   val glowBreath: Float
-  if (reducedMotion) {
+  if (reducedMotion || !coastalBackdropEnabled) {
     driftPhase = 0.5f
     glowBreath = 1.0f
   } else {
@@ -206,6 +211,8 @@ fun CoastalGradientOverlay(
     glowBreath = animatedBreath
   }
 
+  val dimFactor = (wallpaperDimPercent.coerceIn(0, 85) / 100f)
+
   Box(modifier = modifier.fillMaxSize().clipToBounds().testTag("coastal_gradient_overlay")) {
     val parallaxModifier =
       Modifier
@@ -213,9 +220,17 @@ fun CoastalGradientOverlay(
         .graphicsLayer {
           val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
           val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
-          scaleX = 1.14f
-          scaleY = 1.14f
-          translationX = tiltX * 16.dp.toPx()
+          val depth =
+            WallpaperParallaxMath.computeHorizontalDepth(
+              widthPx = size.width,
+              pageProgress = pageParallaxProgress,
+              tiltX = tiltX,
+              tiltPxPerUnit = 16.dp.toPx(),
+              reducedMotion = reducedMotion,
+            )
+          scaleX = 1.24f
+          scaleY = 1.16f
+          translationX = depth.backdropTranslationXPx
           translationY = tiltY * 14.dp.toPx()
         }
         .testTag("sunset_parallax_illustration")
@@ -226,115 +241,142 @@ fun CoastalGradientOverlay(
         bitmap = customBmp,
         contentDescription = null,
         contentScale = ContentScale.Crop,
-        alpha = ((100 - wallpaperDimPercent).coerceIn(15, 80) / 100f),
+        alpha = 1f,
         modifier = parallaxModifier,
       )
-    } else {
+    } else if (!useSystemWallpaper) {
       Image(
         painter = painterResource(id = R.drawable.img_miami_sunset_hero_1794549247807),
         contentDescription = null,
         contentScale = ContentScale.Crop,
-        alpha = if (isDark) 0.30f else 0.18f,
+        alpha = if (isDark) 0.42f else 0.28f,
         modifier = parallaxModifier,
       )
     }
 
-    // Smooth vertical vignette + diagonal atmospheric wash over the backdrop
-    val customDimFactor =
-      if (customBmp != null) (wallpaperDimPercent.coerceIn(20, 85) / 100f) else null
+    // Readability scrim driven by wallpaperDimPercent, plus optional atmospheric coastal wash
     Box(
       modifier =
         Modifier
           .fillMaxSize()
           .drawWithCache {
-            val topScrimAlpha = customDimFactor ?: if (isDark) 0.56f else 0.64f
+            val topScrimAlpha =
+              if (hasWallpaperImage) (dimFactor * 0.85f).coerceIn(0f, 0.85f)
+              else dimFactor.coerceIn(0.15f, 0.85f)
             val midScrimAlpha =
-              if (customDimFactor != null) (customDimFactor * 0.85f).coerceIn(0.18f, 0.85f)
-              else if (isDark) 0.42f else 0.55f
+              if (hasWallpaperImage) (dimFactor * 0.65f).coerceIn(0f, 0.80f)
+              else (dimFactor * 0.78f).coerceIn(0.12f, 0.80f)
+            val lowScrimAlpha =
+              if (hasWallpaperImage) (dimFactor * 0.92f).coerceIn(0f, 0.88f)
+              else (dimFactor.coerceAtLeast(0.45f) * 1.1f).coerceIn(0.45f, 0.92f)
             val scrimBrush =
               Brush.verticalGradient(
                 0.0f to bgCanvasColor.copy(alpha = topScrimAlpha),
-                0.35f to bgCanvasColor.copy(alpha = midScrimAlpha),
-                0.78f to bgCanvasColor.copy(alpha = if (isDark) 0.80f else 0.84f),
-                1.0f to bgCanvasColor.copy(alpha = if (isDark) 0.94f else 0.96f),
+                0.38f to bgCanvasColor.copy(alpha = midScrimAlpha),
+                0.80f to bgCanvasColor.copy(alpha = lowScrimAlpha),
+                1.0f to bgCanvasColor.copy(alpha = (lowScrimAlpha * 1.05f).coerceIn(0f, 0.92f)),
               )
             val skyBrush =
-              Brush.linearGradient(
-                0.0f to upperColor.copy(alpha = skyAlpha),
-                0.48f to washColor.copy(alpha = washAlpha),
-                1.0f to horizonColor.copy(alpha = horizonAlpha),
-                start = Offset(size.width * 0.12f, 0f),
-                end = Offset(size.width * 0.88f, size.height),
-              )
+              if (coastalBackdropEnabled) {
+                Brush.linearGradient(
+                  0.0f to upperColor.copy(alpha = skyAlpha),
+                  0.48f to washColor.copy(alpha = washAlpha),
+                  1.0f to horizonColor.copy(alpha = horizonAlpha),
+                  start = Offset(size.width * 0.12f, 0f),
+                  end = Offset(size.width * 0.88f, size.height),
+                )
+              } else {
+                null
+              }
             onDrawBehind {
               drawRect(brush = scrimBrush)
-              drawRect(brush = skyBrush)
+              if (skyBrush != null) {
+                drawRect(brush = skyBrush)
+              }
             }
           }
     )
 
-    // Mid depth plane: upper horizon radial solar bloom shifted by drift + gyroscope tilt
-    Box(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .graphicsLayer {
-            val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
-            val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
-            translationX = (0.5f - driftPhase) * size.width * 0.12f + tiltX * 24.dp.toPx()
-            translationY = (driftPhase - 0.5f) * size.height * 0.06f + tiltY * 20.dp.toPx()
-            scaleX = glowBreath
-            scaleY = glowBreath
-          }
-          .drawWithCache {
-            val center = Offset(size.width * 0.72f, size.height * 0.19f)
-            val radius = size.maxDimension * 0.68f
-            val bloomBrush =
-              Brush.radialGradient(
-                colors =
-                  listOf(
-                    washColor.copy(alpha = bloomAlpha),
-                    horizonColor.copy(alpha = bloomAlpha * 0.55f),
-                    Color.Transparent,
-                  ),
-                center = center,
-                radius = radius,
-              )
-            onDrawBehind {
-              drawCircle(brush = bloomBrush, radius = radius, center = center)
+    if (coastalBackdropEnabled) {
+      // Mid depth plane: upper horizon radial solar bloom shifted by drift + page swipe + gyroscope tilt
+      Box(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+              val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
+              val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
+              val depth =
+                WallpaperParallaxMath.computeHorizontalDepth(
+                  widthPx = size.width,
+                  pageProgress = pageParallaxProgress,
+                  tiltX = tiltX,
+                  tiltPxPerUnit = 16.dp.toPx(),
+                  reducedMotion = reducedMotion,
+                )
+              translationX = (0.5f - driftPhase) * size.width * 0.12f + depth.skyBloomTranslationXPx
+              translationY = (driftPhase - 0.5f) * size.height * 0.06f + tiltY * 20.dp.toPx()
+              scaleX = glowBreath
+              scaleY = glowBreath
             }
-          }
-    )
+            .drawWithCache {
+              val center = Offset(size.width * 0.72f, size.height * 0.19f)
+              val radius = size.maxDimension * 0.68f
+              val bloomBrush =
+                Brush.radialGradient(
+                  colors =
+                    listOf(
+                      washColor.copy(alpha = bloomAlpha),
+                      horizonColor.copy(alpha = bloomAlpha * 0.55f),
+                      Color.Transparent,
+                    ),
+                  center = center,
+                  radius = radius,
+                )
+              onDrawBehind {
+                drawCircle(brush = bloomBrush, radius = radius, center = center)
+              }
+            }
+      )
 
-    // Near-mid shoreline reflection glow shifted slightly faster than the horizon bloom
-    Box(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .graphicsLayer {
-            val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
-            val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
-            translationX = (driftPhase - 0.5f) * size.width * 0.14f + tiltX * 30.dp.toPx()
-            translationY = tiltY * 22.dp.toPx()
-          }
-          .drawWithCache {
-            val center = Offset(size.width * 0.30f, size.height * 0.96f)
-            val radius = size.maxDimension * 0.62f
-            val bayBrush =
-              Brush.radialGradient(
-                colors =
-                  listOf(
-                    horizonColor.copy(alpha = horizonAlpha * 0.95f),
-                    upperColor.copy(alpha = skyAlpha * 0.45f),
-                    Color.Transparent,
-                  ),
-                center = center,
-                radius = radius,
-              )
-            onDrawBehind {
-              drawCircle(brush = bayBrush, radius = radius, center = center)
+      // Near-mid shoreline reflection glow shifted fastest across page swipes for depth separation
+      Box(
+        modifier =
+          Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+              val tiltX = if (reducedMotion) 0f else (parallaxState?.offsetX ?: 0f)
+              val tiltY = if (reducedMotion) 0f else (parallaxState?.offsetY ?: 0f)
+              val depth =
+                WallpaperParallaxMath.computeHorizontalDepth(
+                  widthPx = size.width,
+                  pageProgress = pageParallaxProgress,
+                  tiltX = tiltX,
+                  tiltPxPerUnit = 16.dp.toPx(),
+                  reducedMotion = reducedMotion,
+                )
+              translationX = (driftPhase - 0.5f) * size.width * 0.14f + depth.shorelineTranslationXPx
+              translationY = tiltY * 22.dp.toPx()
             }
-          }
-    )
+            .drawWithCache {
+              val center = Offset(size.width * 0.30f, size.height * 0.96f)
+              val radius = size.maxDimension * 0.62f
+              val bayBrush =
+                Brush.radialGradient(
+                  colors =
+                    listOf(
+                      horizonColor.copy(alpha = horizonAlpha * 0.95f),
+                      upperColor.copy(alpha = skyAlpha * 0.45f),
+                      Color.Transparent,
+                    ),
+                  center = center,
+                  radius = radius,
+                )
+              onDrawBehind {
+                drawCircle(brush = bayBrush, radius = radius, center = center)
+              }
+            }
+      )
+    }
   }
 }

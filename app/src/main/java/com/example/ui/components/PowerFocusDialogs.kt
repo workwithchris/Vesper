@@ -828,9 +828,11 @@ fun OnboardingWelcomeDialog(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
           Spacer(modifier = Modifier.height(8.dp))
-          Row(
+          @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+          androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             AdaptiveIconShape.entries.forEach { shape ->
               val selected = shape == initialShape
@@ -846,7 +848,6 @@ fun OnboardingWelcomeDialog(
                     else MaterialTheme.colorScheme.outline,
                   ),
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f),
               ) {
                 Text(
                   text = shape.label,

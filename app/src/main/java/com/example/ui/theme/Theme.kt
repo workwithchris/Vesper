@@ -17,7 +17,8 @@ import com.example.model.AdaptiveIconShape
 import com.example.model.ThemeMode
 
 val LocalAccentOption = staticCompositionLocalOf { AccentOption.EMERALD }
-val LocalAdaptiveIconShape = staticCompositionLocalOf { AdaptiveIconShape.ROUNDED_SQUARE }
+val LocalAdaptiveIconShape = staticCompositionLocalOf { AdaptiveIconShape.SYSTEM }
+val LocalRespectIndividualShapes = staticCompositionLocalOf { true }
 val LocalLauncherIsDark = staticCompositionLocalOf { true }
 
 // Vercel / Geist sharper architectural corner geometry
@@ -80,7 +81,8 @@ fun colorSchemeForAccent(
 fun NeonSunsetTheme(
   accentOption: AccentOption = AccentOption.EMERALD,
   themeMode: ThemeMode = ThemeMode.DARK,
-  iconShape: AdaptiveIconShape = AdaptiveIconShape.ROUNDED_SQUARE,
+  iconShape: AdaptiveIconShape = AdaptiveIconShape.SYSTEM,
+  respectIndividualIconShapes: Boolean = true,
   content: @Composable () -> Unit,
 ) {
   val systemDark = isSystemInDarkTheme()
@@ -94,6 +96,7 @@ fun NeonSunsetTheme(
   CompositionLocalProvider(
     LocalAccentOption provides accentOption,
     LocalAdaptiveIconShape provides iconShape,
+    LocalRespectIndividualShapes provides respectIndividualIconShapes,
     LocalLauncherIsDark provides isDark,
   ) {
     MaterialTheme(

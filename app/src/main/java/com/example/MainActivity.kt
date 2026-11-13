@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -36,12 +37,14 @@ import com.example.model.LauncherDestination
 import com.example.ui.components.MindfulLaunchDialog
 import com.example.ui.components.OnboardingWelcomeDialog
 import com.example.ui.drawer.AppDrawer
+import com.example.ui.home.CoastalGradientOverlay
 import com.example.ui.home.HomeScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.LocalLauncherIsDark
 import com.example.ui.theme.NeonSunsetTheme
 import com.example.util.LocalLauncherHapticsEnabled
 import com.example.viewmodel.LauncherViewModel
+import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
 
@@ -50,6 +53,8 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+    window.setBackgroundDrawableResource(android.R.color.transparent)
     enableEdgeToEdge()
 
     // Root back-press guard: as a Home Launcher, MainActivity must never finish() on system back.
@@ -85,13 +90,11 @@ class MainActivity : ComponentActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
-    homeIntentCounter.intValue++
-  }
-
-  override fun onUserLeaveHint() {
-    super.onUserLeaveHint()
-    // Also reset drawer/settings when user leaves or swipes home gesture
-    homeIntentCounter.intValue++
+    val isHomeIntent =
+      intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)
+    if (isHomeIntent) {
+      homeIntentCounter.intValue++
+    }
   }
 }
 
@@ -181,6 +184,7 @@ private fun LauncherAppRoot(
     accentOption = uiState.settings.accent,
     themeMode = uiState.settings.themeMode,
     iconShape = uiState.settings.iconShape,
+    respectIndividualIconShapes = uiState.settings.respectIndividualIconShapes,
   ) {
     val isDark = LocalLauncherIsDark.current
     LaunchedEffect(isDark) { onSystemBarThemeChange(isDark) }
@@ -188,11 +192,17 @@ private fun LauncherAppRoot(
     CompositionLocalProvider(
       LocalLauncherHapticsEnabled provides uiState.settings.hapticFeedbackEnabled
     ) {
+      val needsOpaqueRootBackground =
+        !uiState.settings.useSystemWallpaper &&
+          !uiState.settings.coastalBackdropEnabled &&
+          uiState.settings.customWallpaperPath.isNullOrBlank()
       Box(
         modifier =
-          Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+          if (needsOpaqueRootBackground) {
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+          } else {
+            Modifier.fillMaxSize()
+          }
       ) {
       when (destination) {
         LauncherDestination.HOME, LauncherDestination.ALL_APPS -> {
@@ -227,6 +237,7 @@ private fun LauncherAppRoot(
             onAutoCategorizeFolders = { viewModel.autoCategorizeFolders() },
             onSaveQuickScratchpad = viewModel::setQuickScratchpadText,
             isDrawerOpen = destination == LauncherDestination.ALL_APPS,
+            homeIntentTrigger = homeIntentTrigger,
           )
 
           AppDrawer(
@@ -289,6 +300,23 @@ private fun LauncherAppRoot(
           )
         }
         LauncherDestination.SETTINGS -> {
+          if (!uiState.settings.useSystemWallpaper &&
+            (!uiState.settings.customWallpaperPath.isNullOrBlank() ||
+              uiState.settings.coastalBackdropEnabled)
+          ) {
+            val nowCal = Calendar.getInstance()
+            val settingsHour =
+              nowCal.get(Calendar.HOUR_OF_DAY) + nowCal.get(Calendar.MINUTE) / 60f
+            CoastalGradientOverlay(
+              hourOfDay = settingsHour,
+              reducedMotion = true,
+              parallaxState = null,
+              customWallpaperPath = uiState.settings.customWallpaperPath,
+              wallpaperDimPercent = uiState.settings.wallpaperDimPercent,
+              useSystemWallpaper = false,
+              coastalBackdropEnabled = uiState.settings.coastalBackdropEnabled,
+            )
+          }
           SettingsScreen(
             uiState = uiState,
             onBack = { destination = LauncherDestination.HOME },
@@ -331,7 +359,7 @@ private fun LauncherAppRoot(
             onSelectClockStyle = viewModel::setClockStyle,
             onToggleClockSeconds = viewModel::setShowClockSeconds,
             onToggleBatteryIndicator = viewModel::setShowBatteryIndicator,
-            onPickCustomWallpaper = viewModel::pickCustomWallpaper,
+            onPickCustomWallpaper = { uri -> viewModel.pickCustomWallpaper(uri) },
             onClearCustomWallpaper = viewModel::clearCustomWallpaper,
             onChangeWallpaperDimPercent = viewModel::setWallpaperDimPercent,
             onToggleWidgetStack = viewModel::setWidgetStackEnabled,
@@ -340,6 +368,11 @@ private fun LauncherAppRoot(
             onToggleBottomAlignFavorites = viewModel::setBottomAlignFavorites,
             onToggleLeftHandedScrubber = viewModel::setLeftHandedScrubber,
             onToggleLockHiddenApps = viewModel::setLockHiddenApps,
+            onPickCustomWallpaperWithTarget = viewModel::pickCustomWallpaper,
+            onApplyMiamiSunsetWallpaper = viewModel::applyMiamiSunsetWallpaper,
+            onUsePhoneSystemWallpaper = viewModel::usePhoneSystemWallpaper,
+            onOpenSystemWallpaperPicker = viewModel::openSystemWallpaperPicker,
+            onToggleRespectIndividualShapes = viewModel::setRespectIndividualIconShapes,
           )
         }
       }

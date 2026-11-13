@@ -4,6 +4,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 
+enum class AppIconShapeProfile {
+  SYSTEM_ADAPTIVE,
+  CIRCULAR,
+  ROUNDED_RECT,
+  CUSTOM_SILHOUETTE,
+}
+
 @Immutable
 data class AppInfo(
   val label: String,
@@ -18,6 +25,12 @@ data class AppInfo(
   val userSerialNumber: Long = 0L,
   val appCategory: Int = -1,
   val isSystemApp: Boolean = false,
+  val shapeProfile: AppIconShapeProfile =
+    if (isAdaptiveIcon) AppIconShapeProfile.SYSTEM_ADAPTIVE
+    else AppIconShapeProfile.CUSTOM_SILHOUETTE,
+  val adaptiveForegroundIcon: ImageBitmap? = null,
+  val adaptiveAccentArgb: Int? = null,
+  val hasMonochromeLayer: Boolean = false,
 ) {
   val componentKey: String
     get() =
@@ -124,6 +137,7 @@ enum class ScrollSpeed(
 }
 
 enum class AdaptiveIconShape(val label: String) {
+  SYSTEM("System"),
   ROUNDED_SQUARE("Rounded"),
   SQUIRCLE("Squircle"),
   CIRCLE("Circle"),
@@ -187,7 +201,8 @@ data class MindfulInsights(
 data class LauncherSettings(
   val themeMode: ThemeMode = ThemeMode.DARK,
   val accent: AccentOption = AccentOption.EMERALD,
-  val iconShape: AdaptiveIconShape = AdaptiveIconShape.ROUNDED_SQUARE,
+  val iconShape: AdaptiveIconShape = AdaptiveIconShape.SYSTEM,
+  val respectIndividualIconShapes: Boolean = true,
   val coastalBackdropEnabled: Boolean = true,
   val alphabetIndexEnabled: Boolean = true,
   val hideAppLabels: Boolean = false,
@@ -217,8 +232,9 @@ data class LauncherSettings(
   val clockStyle: ClockStyle = ClockStyle.NEON_HORIZON,
   val showClockSeconds: Boolean = false,
   val showBatteryIndicator: Boolean = true,
+  val useSystemWallpaper: Boolean = true,
   val customWallpaperPath: String? = null,
-  val wallpaperDimPercent: Int = 55,
+  val wallpaperDimPercent: Int = 40,
   val dailyIntention: String = "",
   val widgetStackEnabled: Boolean = true,
   val autoLaunchSingleMatch: Boolean = false,

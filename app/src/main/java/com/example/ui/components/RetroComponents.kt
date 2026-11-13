@@ -65,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -76,10 +77,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.AppRepository
 import com.example.model.AdaptiveIconShape
+import com.example.model.AppIconShapeProfile
 import com.example.model.AppInfo
 import com.example.ui.theme.LocalAdaptiveIconShape
 import com.example.ui.theme.LocalLauncherIsDark
+import com.example.ui.theme.LocalRespectIndividualShapes
 import com.example.util.LauncherHapticEvent
 import com.example.util.rememberLauncherHaptics
 import kotlinx.coroutines.launch
@@ -96,9 +100,46 @@ val SquircleShape: Shape =
     close()
   }
 
-fun AdaptiveIconShape.toComposeShape(): Shape =
+@Composable
+fun rememberSystemAdaptiveIconShape(): Shape {
+  val rawMaskPath = remember { AppRepository.readSystemAdaptiveIconMaskPath() }
+  return remember(rawMaskPath) {
+    if (rawMaskPath == null || rawMaskPath.isEmpty) {
+      SquircleShape
+    } else {
+      GenericShape { size, _ ->
+        val srcBounds = android.graphics.RectF()
+        rawMaskPath.computeBounds(srcBounds, true)
+        if (srcBounds.width() > 1f && srcBounds.height() > 1f && size.width > 1f && size.height > 1f) {
+          val matrix = android.graphics.Matrix()
+          matrix.setRectToRect(
+            srcBounds,
+            android.graphics.RectF(0f, 0f, size.width, size.height),
+            android.graphics.Matrix.ScaleToFit.FILL,
+          )
+          val scaled = android.graphics.Path()
+          rawMaskPath.transform(matrix, scaled)
+          addPath(scaled.asComposePath())
+          close()
+        } else {
+          val w = size.width
+          val h = size.height
+          moveTo(w * 0.5f, 0f)
+          cubicTo(w * 0.915f, 0f, w, h * 0.085f, w, h * 0.5f)
+          cubicTo(w, h * 0.915f, w * 0.915f, h, w * 0.5f, h)
+          cubicTo(w * 0.085f, h, 0f, h * 0.915f, 0f, h * 0.5f)
+          cubicTo(0f, h * 0.085f, w * 0.085f, 0f, w * 0.5f, 0f)
+          close()
+        }
+      }
+    }
+  }
+}
+
+fun AdaptiveIconShape.toComposeShape(systemMask: Shape): Shape =
   when (this) {
-    AdaptiveIconShape.ROUNDED_SQUARE -> RoundedCornerShape(8.dp)
+    AdaptiveIconShape.SYSTEM -> systemMask
+    AdaptiveIconShape.ROUNDED_SQUARE -> RoundedCornerShape(24)
     AdaptiveIconShape.SQUIRCLE -> SquircleShape
     AdaptiveIconShape.CIRCLE -> CircleShape
     AdaptiveIconShape.TEARDROP ->
@@ -110,22 +151,45 @@ fun AdaptiveIconShape.toComposeShape(): Shape =
       )
   }
 
+fun AdaptiveIconShape.toComposeShape(): Shape = toComposeShape(SquircleShape)
+
 @Composable
 fun FramedAppIcon(
   app: AppInfo,
   modifier: Modifier = Modifier,
   frameSize: Dp = 38.dp,
   adaptiveShape: AdaptiveIconShape = LocalAdaptiveIconShape.current,
+  respectIndividualShapes: Boolean = LocalRespectIndividualShapes.current,
 ) {
-  val iconShape = remember(adaptiveShape) { adaptiveShape.toComposeShape() }
+  val systemMask = rememberSystemAdaptiveIconShape()
+  val resolvedShape: Shape? =
+    remember(app.shapeProfile, respectIndividualShapes, adaptiveShape, systemMask) {
+      if (!respectIndividualShapes) {
+        adaptiveShape.toComposeShape(systemMask)
+      } else {
+        when (app.shapeProfile) {
+          AppIconShapeProfile.SYSTEM_ADAPTIVE -> adaptiveShape.toComposeShape(systemMask)
+          AppIconShapeProfile.CIRCULAR -> CircleShape
+          AppIconShapeProfile.ROUNDED_RECT -> RoundedCornerShape(24)
+          AppIconShapeProfile.CUSTOM_SILHOUETTE -> null
+        }
+      }
+    }
   val isDark = LocalLauncherIsDark.current
   val iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.94f else 0.90f)
+
+  val clipModifier =
+    if (resolvedShape != null) {
+      Modifier.clip(resolvedShape)
+    } else {
+      Modifier
+    }
 
   Box(
     modifier =
       modifier
         .size(frameSize)
-        .clip(iconShape)
+        .then(clipModifier)
         .padding(2.dp),
     contentAlignment = Alignment.Center,
   ) {

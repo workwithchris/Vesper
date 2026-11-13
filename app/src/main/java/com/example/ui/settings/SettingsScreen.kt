@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Layers
@@ -117,6 +118,7 @@ import com.example.ui.components.WeatherCityPickerDialog
 import com.example.util.FocusAndSearchUtils
 import com.example.util.LauncherHapticEvent
 import com.example.util.rememberLauncherHaptics
+import com.example.data.AppRepository
 import kotlinx.coroutines.launch
 
 @Composable
@@ -169,6 +171,16 @@ fun SettingsScreen(
   onToggleBottomAlignFavorites: (Boolean) -> Unit = {},
   onToggleLeftHandedScrubber: (Boolean) -> Unit = {},
   onToggleLockHiddenApps: (Boolean) -> Unit = {},
+  onPickCustomWallpaperWithTarget: (Uri, AppRepository.WallpaperTarget, (String) -> Unit) -> Unit =
+    { uri, _, onDone ->
+      onPickCustomWallpaper(uri)
+      onDone("Wallpaper updated")
+    },
+  onApplyMiamiSunsetWallpaper: (AppRepository.WallpaperTarget, (String) -> Unit) -> Unit =
+    { _, _ -> },
+  onUsePhoneSystemWallpaper: () -> Unit = onClearCustomWallpaper,
+  onOpenSystemWallpaperPicker: () -> Boolean = { false },
+  onToggleRespectIndividualShapes: (Boolean) -> Unit = {},
 ) {
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
@@ -212,11 +224,13 @@ fun SettingsScreen(
       }
     }
 
+  var pendingWallpaperTarget by remember { mutableStateOf(AppRepository.WallpaperTarget.HOME_AND_LOCK) }
   val wallpaperPickerLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
       if (uri != null) {
-        onPickCustomWallpaper(uri)
-        scope.launch { snackbarHostState.showSnackbar("Custom wallpaper applied") }
+        onPickCustomWallpaperWithTarget(uri, pendingWallpaperTarget) { message ->
+          scope.launch { snackbarHostState.showSnackbar(message) }
+        }
       }
     }
 
@@ -247,8 +261,18 @@ fun SettingsScreen(
     }
   }
 
+  val hasWallpaperBehindSettings =
+    settings.useSystemWallpaper || !settings.customWallpaperPath.isNullOrBlank()
+  val settingsScrimAlpha =
+    when {
+      hasWallpaperBehindSettings ->
+        (0.56f + (settings.wallpaperDimPercent.coerceIn(0, 85) / 100f) * 0.36f).coerceIn(0.56f, 0.92f)
+      settings.coastalBackdropEnabled -> 0.86f
+      else -> 1f
+    }
+
   Scaffold(
-    containerColor = MaterialTheme.colorScheme.background,
+    containerColor = MaterialTheme.colorScheme.background.copy(alpha = settingsScrimAlpha),
     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     modifier = modifier.fillMaxSize(),
   ) { innerPadding ->
@@ -367,6 +391,15 @@ fun SettingsScreen(
           testTag = "settings_icon_shape_row",
         )
 
+        SettingsToggleRow(
+          icon = Icons.Outlined.GridView,
+          title = "Respect app icon shapes",
+          checked = settings.respectIndividualIconShapes,
+          onCheckedChange = onToggleRespectIndividualShapes,
+          accentColor = accentColor,
+          testTag = "respect_individual_shapes_switch",
+        )
+
         SettingsValueRow(
           icon = Icons.Outlined.Style,
           title = "Clock style",
@@ -405,54 +438,49 @@ fun SettingsScreen(
         val hasCustomWallpaper = !settings.customWallpaperPath.isNullOrBlank()
         SettingsValueRow(
           icon = Icons.Outlined.Wallpaper,
-          title = "Backdrop wallpaper",
-          value = if (hasCustomWallpaper) "Custom photo" else "Miami sunset",
-          onClick = {
-            if (hasCustomWallpaper) {
-              showWallpaperOptionsDialog = true
-            } else {
-              wallpaperPickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-              )
-            }
-          },
+          title = "Wallpaper",
+          value =
+            when {
+              hasCustomWallpaper -> "Custom photo"
+              settings.useSystemWallpaper -> "Synced with phone"
+              else -> "Miami sunset"
+            },
+          onClick = { showWallpaperOptionsDialog = true },
           testTag = "settings_wallpaper_row",
         )
 
-        if (hasCustomWallpaper) {
-          Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                imageVector = Icons.Outlined.BrightnessMedium,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
-              )
-              Spacer(modifier = Modifier.width(16.dp))
-              Text(
-                text = "Wallpaper dim",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-              )
-              Text(
-                text = "${settings.wallpaperDimPercent}%",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            Slider(
-              value = settings.wallpaperDimPercent.toFloat(),
-              onValueChange = { onChangeWallpaperDimPercent(it.toInt()) },
-              valueRange = 20f..85f,
-              colors =
-                SliderDefaults.colors(
-                  thumbColor = accentColor,
-                  activeTrackColor = accentColor,
-                ),
-              modifier = Modifier.fillMaxWidth().padding(start = 38.dp).testTag("wallpaper_dim_slider"),
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+              imageVector = Icons.Outlined.BrightnessMedium,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+              text = "Wallpaper dim",
+              style = MaterialTheme.typography.titleMedium,
+              color = MaterialTheme.colorScheme.onBackground,
+              modifier = Modifier.weight(1f),
+            )
+            Text(
+              text = "${settings.wallpaperDimPercent}%",
+              style = MaterialTheme.typography.bodyMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
+          Slider(
+            value = settings.wallpaperDimPercent.toFloat(),
+            onValueChange = { onChangeWallpaperDimPercent(it.toInt()) },
+            valueRange = 0f..85f,
+            colors =
+              SliderDefaults.colors(
+                thumbColor = accentColor,
+                activeTrackColor = accentColor,
+              ),
+            modifier = Modifier.fillMaxWidth().padding(start = 38.dp).testTag("wallpaper_dim_slider"),
+          )
         }
 
         SettingsValueRow(
@@ -824,20 +852,22 @@ fun SettingsScreen(
   }
 
   if (showWallpaperOptionsDialog) {
+    val hasCustom = !settings.customWallpaperPath.isNullOrBlank()
     AlertDialog(
       onDismissRequest = { showWallpaperOptionsDialog = false },
       shape = RoundedCornerShape(12.dp),
       containerColor = MaterialTheme.colorScheme.surface,
-      title = { Text("Backdrop wallpaper") },
+      title = { Text("Phone & launcher wallpaper") },
       text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
           Text(
-            text = "Choose another photo from your library or restore the built-in Miami sunset artwork.",
+            text = "Vesper shares your phone's system wallpaper across Home, All apps, and Settings.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
           Button(
             onClick = {
+              pendingWallpaperTarget = AppRepository.WallpaperTarget.HOME_AND_LOCK
               showWallpaperOptionsDialog = false
               wallpaperPickerLauncher.launch(
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -845,19 +875,62 @@ fun SettingsScreen(
             },
             colors = ButtonDefaults.buttonColors(containerColor = accentColor),
             shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("wallpaper_pick_both_button"),
           ) {
-            Text("Pick another photo")
+            Text("Choose photo (Home & Lock)")
+          }
+          OutlinedButton(
+            onClick = {
+              pendingWallpaperTarget = AppRepository.WallpaperTarget.HOME
+              showWallpaperOptionsDialog = false
+              wallpaperPickerLauncher.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+              )
+            },
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().testTag("wallpaper_pick_home_button"),
+          ) {
+            Text("Choose photo (Home screen only)")
           }
           OutlinedButton(
             onClick = {
               showWallpaperOptionsDialog = false
-              onClearCustomWallpaper()
+              val opened = onOpenSystemWallpaperPicker()
+              if (!opened) {
+                scope.launch {
+                  snackbarHostState.showSnackbar("System wallpaper picker unavailable on this device")
+                }
+              }
             },
             shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("wallpaper_system_picker_button"),
           ) {
-            Text("Reset to Miami sunset")
+            Text("System & live wallpapers")
+          }
+          OutlinedButton(
+            onClick = {
+              showWallpaperOptionsDialog = false
+              onApplyMiamiSunsetWallpaper(AppRepository.WallpaperTarget.HOME_AND_LOCK) { message ->
+                scope.launch { snackbarHostState.showSnackbar(message) }
+              }
+            },
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().testTag("wallpaper_apply_sunset_button"),
+          ) {
+            Text("Apply Miami sunset artwork")
+          }
+          if (!settings.useSystemWallpaper || hasCustom) {
+            OutlinedButton(
+              onClick = {
+                showWallpaperOptionsDialog = false
+                onUsePhoneSystemWallpaper()
+                scope.launch { snackbarHostState.showSnackbar("Synced with phone wallpaper") }
+              },
+              shape = RoundedCornerShape(8.dp),
+              modifier = Modifier.fillMaxWidth().testTag("wallpaper_sync_system_button"),
+            ) {
+              Text("Sync with current phone wallpaper")
+            }
           }
         }
       },
@@ -865,6 +938,7 @@ fun SettingsScreen(
       dismissButton = {
         TextButton(onClick = { showWallpaperOptionsDialog = false }) { Text("Close") }
       },
+      modifier = Modifier.testTag("wallpaper_options_dialog"),
     )
   }
 

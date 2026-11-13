@@ -101,6 +101,50 @@ object GyroParallaxMath {
   }
 }
 
+data class WallpaperParallaxOffsets(
+  val backdropTranslationXPx: Float,
+  val skyBloomTranslationXPx: Float,
+  val shorelineTranslationXPx: Float,
+  val weatherTranslationXPx: Float,
+  val systemWallpaperXOffset: Float,
+)
+
+object WallpaperParallaxMath {
+  /**
+   * Computes multi-plane horizontal depth translations for a viewport of [widthPx]
+   * given normalized [pageProgress] in [0f, 1f] across home pages and gyroscope [tiltX] in [-1f, 1f].
+   *
+   * Symmetric centered progress (-1f..+1f) keeps scaled layers (1.24x+ width) well inside bounds
+   * across every page without exposing canvas edges.
+   */
+  fun computeHorizontalDepth(
+    widthPx: Float,
+    pageProgress: Float,
+    tiltX: Float,
+    tiltPxPerUnit: Float,
+    reducedMotion: Boolean,
+  ): WallpaperParallaxOffsets {
+    val clampedWallpaperOffset = pageProgress.coerceIn(0f, 1f)
+    if (reducedMotion || widthPx <= 0f) {
+      return WallpaperParallaxOffsets(
+        backdropTranslationXPx = 0f,
+        skyBloomTranslationXPx = 0f,
+        shorelineTranslationXPx = 0f,
+        weatherTranslationXPx = 0f,
+        systemWallpaperXOffset = clampedWallpaperOffset,
+      )
+    }
+    val centered = (pageProgress.coerceIn(-0.15f, 1.15f) - 0.5f) * 2f
+    return WallpaperParallaxOffsets(
+      backdropTranslationXPx = -centered * (widthPx * 0.065f) + tiltX * tiltPxPerUnit * 1.0f,
+      skyBloomTranslationXPx = -centered * (widthPx * 0.11f) + tiltX * tiltPxPerUnit * 1.5f,
+      shorelineTranslationXPx = -centered * (widthPx * 0.16f) + tiltX * tiltPxPerUnit * 1.9f,
+      weatherTranslationXPx = -centered * (widthPx * 0.09f) + tiltX * tiltPxPerUnit * 2.2f,
+      systemWallpaperXOffset = clampedWallpaperOffset,
+    )
+  }
+}
+
 @Stable
 class GyroscopeParallaxState(
   initialX: Float = 0f,

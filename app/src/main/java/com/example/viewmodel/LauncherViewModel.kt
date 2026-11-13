@@ -444,6 +444,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             userSerialNumber = entry.userSerialNumber,
             appCategory = entry.appCategory,
             isSystemApp = entry.isSystemApp,
+            shapeProfile = entry.cachedShapeProfile,
+            adaptiveForegroundIcon = entry.cachedForegroundIcon,
+            adaptiveAccentArgb = entry.cachedAccentArgb,
+            hasMonochromeLayer = entry.cachedHasMonochromeLayer,
           )
         }
       installedAppsFlow.value = initialApps
@@ -466,10 +470,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
       uncachedEntries.chunked(8).forEach { batch ->
         batch.forEach { entry ->
-          val (bitmap, isAdaptive) = appRepository.loadIconForEntry(entry)
+          val assets = appRepository.loadIconForEntry(entry)
           val idx = indexByKey[entry.componentKey]
           if (idx != null) {
-            workingList[idx] = workingList[idx].copy(icon = bitmap, isAdaptiveIcon = isAdaptive)
+            workingList[idx] =
+              workingList[idx].copy(
+                icon = assets.bitmap,
+                isAdaptiveIcon = assets.isAdaptive,
+                shapeProfile = assets.shapeProfile,
+                adaptiveForegroundIcon = assets.foregroundBitmap,
+                adaptiveAccentArgb = assets.accentArgb,
+                hasMonochromeLayer = assets.hasMonochromeLayer,
+              )
           }
         }
         installedAppsFlow.value = workingList.toList()
@@ -671,6 +683,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     viewModelScope.launch { settingsRepository.setIconShape(iconShape) }
   }
 
+  fun setRespectIndividualIconShapes(enabled: Boolean) {
+    viewModelScope.launch { settingsRepository.setRespectIndividualIconShapes(enabled) }
+  }
+
   fun setCoastalBackdropEnabled(enabled: Boolean) {
     viewModelScope.launch { settingsRepository.setCoastalBackdropEnabled(enabled) }
   }
@@ -802,21 +818,62 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     viewModelScope.launch { settingsRepository.setShowBatteryIndicator(enabled) }
   }
 
-  fun pickCustomWallpaper(uri: Uri) {
+  fun pickCustomWallpaper(
+    uri: Uri,
+    target: AppRepository.WallpaperTarget = AppRepository.WallpaperTarget.HOME_AND_LOCK,
+    onResult: (String) -> Unit = {},
+  ) {
     viewModelScope.launch {
-      val savedPath = appRepository.importCustomWallpaper(uri)
-      if (savedPath != null) {
-        settingsRepository.setCustomWallpaperPath(savedPath)
+      when (val outcome = appRepository.applyCustomWallpaper(uri, target)) {
+        AppRepository.WallpaperApplyOutcome.AppliedToSystem -> {
+          settingsRepository.setUseSystemWallpaper(true)
+          settingsRepository.setCustomWallpaperPath(null)
+          onResult("Wallpaper updated for phone & launcher")
+        }
+        is AppRepository.WallpaperApplyOutcome.AppliedFallbackFile -> {
+          settingsRepository.setUseSystemWallpaper(false)
+          settingsRepository.setCustomWallpaperPath(outcome.filePath)
+          onResult("Wallpaper applied inside launcher")
+        }
+        AppRepository.WallpaperApplyOutcome.Failed -> {
+          onResult("Could not apply selected image")
+        }
       }
     }
   }
 
-  fun clearCustomWallpaper() {
+  fun applyMiamiSunsetWallpaper(
+    target: AppRepository.WallpaperTarget = AppRepository.WallpaperTarget.HOME_AND_LOCK,
+    onResult: (String) -> Unit = {},
+  ) {
     viewModelScope.launch {
-      val existing = uiState.value.settings.customWallpaperPath
-      appRepository.clearCustomWallpaper(existing)
+      appRepository.clearCustomWallpaper(uiState.value.settings.customWallpaperPath)
       settingsRepository.setCustomWallpaperPath(null)
+      when (appRepository.applyPresetSunsetWallpaper(target)) {
+        AppRepository.WallpaperApplyOutcome.AppliedToSystem -> {
+          settingsRepository.setUseSystemWallpaper(true)
+          onResult("Miami sunset applied to phone & launcher")
+        }
+        else -> {
+          settingsRepository.setUseSystemWallpaper(false)
+          onResult("Miami sunset artwork set for launcher")
+        }
+      }
     }
+  }
+
+  fun usePhoneSystemWallpaper() {
+    viewModelScope.launch {
+      appRepository.clearCustomWallpaper(uiState.value.settings.customWallpaperPath)
+      settingsRepository.setCustomWallpaperPath(null)
+      settingsRepository.setUseSystemWallpaper(true)
+    }
+  }
+
+  fun openSystemWallpaperPicker(): Boolean = appRepository.openSystemWallpaperPicker()
+
+  fun clearCustomWallpaper() {
+    usePhoneSystemWallpaper()
   }
 
   fun setWallpaperDimPercent(percent: Int) {
