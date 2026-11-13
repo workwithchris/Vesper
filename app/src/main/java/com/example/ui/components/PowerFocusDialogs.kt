@@ -1,10 +1,12 @@
 package com.example.ui.components
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SelfImprovement
@@ -63,15 +65,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.example.data.WeatherRepository
-import com.example.model.AccentOption
-import com.example.model.AdaptiveIconShape
 import com.example.model.AppFolder
 import com.example.model.AppInfo
 import com.example.model.MindfulInsights
 import com.example.model.WeatherLocation
 import com.example.ui.theme.GeistMonoNumericStyle
-import com.example.ui.theme.LocalLauncherIsDark
 import com.example.util.FocusAndSearchUtils
 import com.example.util.LauncherHapticEvent
 import com.example.util.rememberLauncherHaptics
@@ -234,19 +234,35 @@ fun WeatherCityPickerDialog(
   onSearchCities: suspend (String) -> List<WeatherLocation>,
   onSelectLocation: (WeatherLocation) -> Unit,
   onDismiss: () -> Unit,
+  useDeviceLocation: Boolean = false,
+  isDetectingLocation: Boolean = false,
+  locationStatusMessage: String? = null,
+  onUseDeviceLocation: () -> Unit = {},
 ) {
+  val context = LocalContext.current
   val launcherHaptics = rememberLauncherHaptics()
   var query by remember { mutableStateOf("") }
   var isSearching by remember { mutableStateOf(false) }
   var searchResults by remember { mutableStateOf<List<WeatherLocation>>(emptyList()) }
+  var deniedHint by remember { mutableStateOf<String?>(null) }
   val scope = rememberCoroutineScope()
+
+  val locationPermissionLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      if (granted) {
+        deniedHint = null
+        onUseDeviceLocation()
+      } else {
+        deniedHint = "Location permission denied — search a city manually below"
+      }
+    }
 
   Dialog(onDismissRequest = onDismiss) {
     Surface(
       shape = RoundedCornerShape(12.dp),
       color = MaterialTheme.colorScheme.surface,
       border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-      modifier = Modifier.fillMaxWidth().heightIn(max = 540.dp).testTag("weather_city_dialog"),
+      modifier = Modifier.fillMaxWidth().heightIn(max = 580.dp).testTag("weather_city_dialog"),
     ) {
       Column(modifier = Modifier.padding(18.dp)) {
         Text(
@@ -256,10 +272,93 @@ fun WeatherCityPickerDialog(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-          text = "Current: ${currentLocation.name} (${currentLocation.region})",
+          text =
+            buildString {
+              append("Current: ${currentLocation.name}")
+              if (currentLocation.region.isNotEmpty()) append(" (${currentLocation.region})")
+              if (useDeviceLocation) append(" · Device")
+            },
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Surface(
+          onClick = {
+            launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
+            deniedHint = null
+            val hasCoarse =
+              ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+            val hasFine =
+              ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+            if (hasCoarse || hasFine) {
+              onUseDeviceLocation()
+            } else {
+              locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+          },
+          shape = RoundedCornerShape(10.dp),
+          color =
+            if (useDeviceLocation) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+            else MaterialTheme.colorScheme.surfaceVariant,
+          border =
+            BorderStroke(
+              1.dp,
+              if (useDeviceLocation) MaterialTheme.colorScheme.primary
+              else MaterialTheme.colorScheme.outline,
+            ),
+          modifier = Modifier.fillMaxWidth().testTag("weather_use_device_location_button"),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Icon(
+              imageVector = Icons.Outlined.MyLocation,
+              contentDescription = null,
+              tint =
+                if (useDeviceLocation) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Use device location",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+              val subtitle =
+                deniedHint
+                  ?: locationStatusMessage
+                  ?: if (useDeviceLocation) "Auto-synced from GPS & network"
+                  else "Detect current city from this device"
+              Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
+            if (isDetectingLocation) {
+              CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+              )
+            } else if (useDeviceLocation) {
+              Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = "Active",
+                tint = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
+        }
+
         Spacer(modifier = Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
           OutlinedTextField(
@@ -741,201 +840,6 @@ fun BackupRestoreDialog(
               modifier = Modifier.testTag("restore_backup_button"),
             ) {
               Text("Restore")
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-@Composable
-fun OnboardingWelcomeDialog(
-  allApps: List<AppInfo>,
-  initialAccent: AccentOption,
-  initialShape: AdaptiveIconShape,
-  initialFavorites: List<AppInfo>,
-  onSelectAccent: (AccentOption) -> Unit,
-  onSelectShape: (AdaptiveIconShape) -> Unit,
-  onFinish: (selectedFavorites: List<AppInfo>) -> Unit,
-  onSkip: () -> Unit,
-) {
-  val launcherHaptics = rememberLauncherHaptics()
-  var step by remember { mutableIntStateOf(0) }
-  var selectedKeys by remember(initialFavorites) {
-    mutableStateOf(initialFavorites.map { it.componentKey }.toSet())
-  }
-
-  Dialog(onDismissRequest = onSkip) {
-    Surface(
-      shape = RoundedCornerShape(12.dp),
-      color = MaterialTheme.colorScheme.surface,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-      modifier = Modifier.fillMaxWidth().heightIn(max = 580.dp).testTag("onboarding_dialog"),
-    ) {
-      Column(modifier = Modifier.padding(20.dp)) {
-        Text(
-          text = if (step == 0) "Welcome to Vesper" else "Pick your starter favorites",
-          style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-          color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-          text =
-            if (step == 0) "Choose your signature coastal accent and icon frame."
-            else "Select the apps you want right on your home screen.",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (step == 0) {
-          Text(
-            text = "ACCENT COLOR",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          val isDarkTheme = LocalLauncherIsDark.current
-          Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            AccentOption.entries.forEach { option ->
-              val selected = option == initialAccent
-              Box(
-                modifier =
-                  Modifier
-                    .size(if (selected) 34.dp else 30.dp)
-                    .clip(CircleShape)
-                    .background(option.resolvedPrimary(isDarkTheme))
-                    .border(
-                      width = if (selected) 2.dp else 1.dp,
-                      color =
-                        if (selected) MaterialTheme.colorScheme.onBackground
-                        else MaterialTheme.colorScheme.outlineVariant,
-                      shape = CircleShape,
-                    )
-                    .clickable {
-                      launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                      onSelectAccent(option)
-                    }
-                    .testTag("onboarding_accent_${option.name.lowercase()}"),
-              )
-            }
-          }
-          Spacer(modifier = Modifier.height(16.dp))
-          Text(
-            text = "ICON FRAME SHAPE",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-          androidx.compose.foundation.layout.FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            AdaptiveIconShape.entries.forEach { shape ->
-              val selected = shape == initialShape
-              OutlinedButton(
-                onClick = {
-                  launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                  onSelectShape(shape)
-                },
-                border =
-                  BorderStroke(
-                    1.dp,
-                    if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outline,
-                  ),
-                shape = RoundedCornerShape(8.dp),
-              ) {
-                Text(
-                  text = shape.label,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  style = MaterialTheme.typography.labelMedium,
-                )
-              }
-            }
-          }
-        } else {
-          LazyColumn(
-            modifier = Modifier.weight(1f, fill = false),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            items(allApps, key = { it.componentKey }) { app ->
-              val checked = app.componentKey in selectedKeys
-              Surface(
-                onClick = {
-                  launcherHaptics.trigger(LauncherHapticEvent.TOGGLE_SWITCH)
-                  selectedKeys =
-                    if (checked) selectedKeys - app.componentKey
-                    else selectedKeys + app.componentKey
-                },
-                shape = RoundedCornerShape(8.dp),
-                color =
-                  if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                  else Color.Transparent,
-                modifier = Modifier.fillMaxWidth(),
-              ) {
-                Row(
-                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  FramedAppIcon(app = app, frameSize = 34.dp, adaptiveShape = initialShape)
-                  Spacer(modifier = Modifier.width(12.dp))
-                  Text(
-                    text = app.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                  )
-                  if (checked) {
-                    Icon(
-                      imageVector = Icons.Outlined.Check,
-                      contentDescription = "Selected",
-                      tint = MaterialTheme.colorScheme.primary,
-                    )
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          TextButton(onClick = onSkip, modifier = Modifier.testTag("onboarding_skip_button")) {
-            Text("Skip")
-          }
-          if (step == 0) {
-            Button(
-              onClick = {
-                launcherHaptics.trigger(LauncherHapticEvent.SUBTLE_TAP)
-                step = 1
-              },
-              colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-              shape = RoundedCornerShape(8.dp),
-              modifier = Modifier.testTag("onboarding_next_button"),
-            ) {
-              Text("Next")
-            }
-          } else {
-            Button(
-              onClick = {
-                launcherHaptics.trigger(LauncherHapticEvent.CONFIRM_ACTION)
-                onFinish(allApps.filter { it.componentKey in selectedKeys })
-              },
-              colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-              shape = RoundedCornerShape(8.dp),
-              modifier = Modifier.testTag("onboarding_finish_button"),
-            ) {
-              Text("Finish setup")
             }
           }
         }

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PanToolAlt
 import androidx.compose.material.icons.outlined.QueryStats
@@ -181,6 +182,8 @@ fun SettingsScreen(
   onUsePhoneSystemWallpaper: () -> Unit = onClearCustomWallpaper,
   onOpenSystemWallpaperPicker: () -> Boolean = { false },
   onToggleRespectIndividualShapes: (Boolean) -> Unit = {},
+  onToggleUseDeviceLocation: (Boolean) -> Unit = {},
+  onUseDeviceLocation: () -> Unit = {},
 ) {
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
@@ -242,6 +245,18 @@ fun SettingsScreen(
         onToggleCalendarPreview(false)
         scope.launch {
           snackbarHostState.showSnackbar("Calendar permission is required to show upcoming events")
+        }
+      }
+    }
+
+  val locationPermissionLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      if (granted) {
+        onUseDeviceLocation()
+      } else {
+        onToggleUseDeviceLocation(false)
+        scope.launch {
+          snackbarHostState.showSnackbar("Location permission is required to detect your city")
         }
       }
     }
@@ -483,10 +498,44 @@ fun SettingsScreen(
           )
         }
 
+        SettingsToggleRow(
+          icon = Icons.Outlined.MyLocation,
+          title = "Use device location",
+          checked = settings.useDeviceLocation,
+          onCheckedChange = { enabled ->
+            if (!enabled) {
+              onToggleUseDeviceLocation(false)
+            } else {
+              val hasCoarse =
+                ContextCompat.checkSelfPermission(
+                  context,
+                  Manifest.permission.ACCESS_COARSE_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED
+              val hasFine =
+                ContextCompat.checkSelfPermission(
+                  context,
+                  Manifest.permission.ACCESS_FINE_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED
+              if (hasCoarse || hasFine) {
+                onToggleUseDeviceLocation(true)
+              } else {
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+              }
+            }
+          },
+          accentColor = accentColor,
+          testTag = "settings_device_location_switch",
+        )
+
         SettingsValueRow(
           icon = Icons.Outlined.LocationOn,
           title = "Weather location",
-          value = settings.weatherLocation.name,
+          value =
+            when {
+              uiState.isDetectingLocation -> "Detecting..."
+              settings.useDeviceLocation -> "Device · ${settings.weatherLocation.name}"
+              else -> settings.weatherLocation.name
+            },
           onClick = { showCityPickerDialog = true },
           testTag = "settings_weather_location_row",
         )
@@ -951,6 +1000,10 @@ fun SettingsScreen(
         showCityPickerDialog = false
       },
       onDismiss = { showCityPickerDialog = false },
+      useDeviceLocation = settings.useDeviceLocation,
+      isDetectingLocation = uiState.isDetectingLocation,
+      locationStatusMessage = uiState.locationStatusMessage,
+      onUseDeviceLocation = onUseDeviceLocation,
     )
   }
 

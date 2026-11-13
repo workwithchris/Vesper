@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AppRepository
 import com.example.data.CalendarRepository
 import com.example.data.DailyMindfulTotals
+import com.example.data.DeviceLocationResult
 import com.example.data.SettingsRepository
 import com.example.data.WeatherRepository
 import com.example.model.AccentOption
@@ -47,7 +48,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   private val appRepository = AppRepository(application)
   private val settingsRepository = SettingsRepository(application)
-  private val weatherRepository = WeatherRepository()
+  private val weatherRepository = WeatherRepository(application)
   private val calendarRepository = CalendarRepository(application)
 
   private val installedAppsFlow = MutableStateFlow<List<AppInfo>>(emptyList())
@@ -61,6 +62,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
   private val isDefaultLauncherFlow = MutableStateFlow(appRepository.isDefaultHomeLauncher())
   private val clockPulseFlow = MutableStateFlow(System.currentTimeMillis())
   private val drawerProfileFilterFlow = MutableStateFlow(DrawerProfileFilter.ALL)
+  private val isDetectingLocationFlow = MutableStateFlow(false)
+  private val locationStatusMessageFlow = MutableStateFlow<String?>(null)
 
   private data class CoreSnapshot(
     val rawApps: List<AppInfo>,
@@ -119,8 +122,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
       TransientSnapshot(pendingMindful, shortcuts, isDefaultHome, nowMillis, profileFilter)
     }
 
+  private val locationStateFlow =
+    combine(isDetectingLocationFlow, locationStatusMessageFlow) { detecting, status ->
+      detecting to status
+    }
+
   val uiState: StateFlow<LauncherUiState> =
-    combine(coreStateFlow, environmentFlow, transientFlow) { core, env, trans ->
+    combine(coreStateFlow, environmentFlow, transientFlow, locationStateFlow) { core, env, trans, locState ->
       val settings = core.settings
       val focusActive = FocusAndSearchUtils.isFocusModeActive(settings, trans.nowMillis)
 
@@ -306,6 +314,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         frequentDrawerApps = frequentDrawerApps,
         activeTimeOfDayBucket = activeBucket,
         appShortcutsByPackage = shortcutsByPackage,
+        isDetectingLocation = locState.first,
+        locationStatusMessage = locState.second,
       )
     }
       .stateIn(
@@ -390,6 +400,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   fun selectWeatherLocation(location: WeatherLocation) {
     viewModelScope.launch {
+      locationStatusMessageFlow.value = null
+      settingsRepository.setUseDeviceLocation(false)
       settingsRepository.setWeatherLocation(location)
       weatherFlow.value = weatherFlow.value.copy(locationName = location.name, isRefreshing = true)
       val fetched = weatherRepository.fetchWeather(location)
@@ -399,6 +411,55 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
       } else {
         weatherFlow.value = weatherFlow.value.copy(isRefreshing = false)
       }
+    }
+  }
+
+  fun setUseDeviceLocation(enabled: Boolean) {
+    viewModelScope.launch {
+      settingsRepository.setUseDeviceLocation(enabled)
+      if (enabled) {
+        detectAndUseDeviceLocationInternal()
+      } else {
+        locationStatusMessageFlow.value = null
+      }
+    }
+  }
+
+  fun detectAndUseDeviceLocation() {
+    viewModelScope.launch {
+      settingsRepository.setUseDeviceLocation(true)
+      detectAndUseDeviceLocationInternal()
+    }
+  }
+
+  private suspend fun detectAndUseDeviceLocationInternal() {
+    if (isDetectingLocationFlow.value) return
+    isDetectingLocationFlow.value = true
+    locationStatusMessageFlow.value = "Detecting device location..."
+    try {
+      when (val result = weatherRepository.detectDeviceLocation()) {
+        is DeviceLocationResult.Success -> {
+          val resolved = result.location
+          settingsRepository.setWeatherLocation(resolved)
+          locationStatusMessageFlow.value = "Updated to ${resolved.name}"
+          weatherFlow.value = weatherFlow.value.copy(locationName = resolved.name, isRefreshing = true)
+          val fetched = weatherRepository.fetchWeather(resolved)
+          if (fetched != null) {
+            weatherFlow.value = fetched
+            settingsRepository.saveCachedWeather(fetched)
+          } else {
+            weatherFlow.value = weatherFlow.value.copy(isRefreshing = false)
+          }
+        }
+        DeviceLocationResult.PermissionRequired -> {
+          locationStatusMessageFlow.value = "Allow location access to detect your city"
+        }
+        is DeviceLocationResult.Unavailable -> {
+          locationStatusMessageFlow.value = result.reason
+        }
+      }
+    } finally {
+      isDetectingLocationFlow.value = false
     }
   }
 
@@ -416,7 +477,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   private suspend fun fetchAndApplyWeather() {
     if (weatherFlow.value.isRefreshing) return
-    val location = settingsRepository.settingsFlow.first().weatherLocation
+    val currentSettings = settingsRepository.settingsFlow.first()
+    var location = currentSettings.weatherLocation
+    if (currentSettings.useDeviceLocation && weatherRepository.hasLocationPermission()) {
+      val detected = weatherRepository.detectDeviceLocation()
+      if (detected is DeviceLocationResult.Success) {
+        location = detected.location
+        if (location != currentSettings.weatherLocation) {
+          settingsRepository.setWeatherLocation(location)
+        }
+      }
+    }
     weatherFlow.value = weatherFlow.value.copy(locationName = location.name, isRefreshing = true)
     val fetched = weatherRepository.fetchWeather(location)
     if (fetched != null) {

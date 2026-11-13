@@ -59,6 +59,7 @@ class SettingsRepository(private val context: Context) {
     val SHOW_DAILY_LAUNCH_COUNTS = booleanPreferencesKey("show_daily_launch_counts")
     val CALENDAR_PREVIEW_ENABLED = booleanPreferencesKey("calendar_preview_enabled")
     val REDUCED_MOTION = booleanPreferencesKey("reduced_motion_enabled")
+    val USE_DEVICE_LOCATION = booleanPreferencesKey("use_device_location")
     val WEATHER_LOC_NAME = stringPreferencesKey("weather_loc_name")
     val WEATHER_LOC_REGION = stringPreferencesKey("weather_loc_region")
     val WEATHER_LOC_LAT = doublePreferencesKey("weather_loc_lat")
@@ -136,6 +137,7 @@ class SettingsRepository(private val context: Context) {
         showDailyLaunchCounts = prefs[Keys.SHOW_DAILY_LAUNCH_COUNTS] ?: false,
         calendarPreviewEnabled = prefs[Keys.CALENDAR_PREVIEW_ENABLED] ?: false,
         reducedMotionEnabled = prefs[Keys.REDUCED_MOTION] ?: false,
+        useDeviceLocation = prefs[Keys.USE_DEVICE_LOCATION] ?: true,
         weatherLocation = weatherLocation,
         swipeLeftAction =
           HomeGestureAction.fromName(prefs[Keys.SWIPE_LEFT_ACTION], HomeGestureAction.OPEN_CAMERA),
@@ -309,6 +311,10 @@ class SettingsRepository(private val context: Context) {
     context.launcherDataStore.edit { it[Keys.REDUCED_MOTION] = enabled }
   }
 
+  suspend fun setUseDeviceLocation(enabled: Boolean) {
+    context.launcherDataStore.edit { it[Keys.USE_DEVICE_LOCATION] = enabled }
+  }
+
   suspend fun setWeatherLocation(location: WeatherLocation) {
     context.launcherDataStore.edit { prefs ->
       prefs[Keys.WEATHER_LOC_NAME] = location.name
@@ -446,6 +452,7 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.MINDFUL_PAUSED_KEYS] = imported.mindfulPausedComponentKeys.joinToString("\n")
       prefs[Keys.SHOW_DAILY_LAUNCH_COUNTS] = imported.showDailyLaunchCounts
       prefs[Keys.REDUCED_MOTION] = imported.reducedMotionEnabled
+      prefs[Keys.USE_DEVICE_LOCATION] = imported.useDeviceLocation
       prefs[Keys.WEATHER_LOC_NAME] = imported.weatherLocation.name
       prefs[Keys.WEATHER_LOC_REGION] = imported.weatherLocation.region
       prefs[Keys.WEATHER_LOC_LAT] = imported.weatherLocation.latitude
@@ -549,6 +556,7 @@ class SettingsRepository(private val context: Context) {
       prefs[Keys.BOTTOM_ALIGN_FAVORITES] = false
       prefs[Keys.LEFT_HANDED_SCRUBBER] = false
       prefs[Keys.LOCK_HIDDEN_APPS] = false
+      prefs[Keys.USE_DEVICE_LOCATION] = true
       prefs.remove(Keys.QUICK_SCRATCHPAD_TEXT)
     }
   }
@@ -640,6 +648,7 @@ class SettingsRepository(private val context: Context) {
         put("scrollSpeed", s.scrollSpeed.name)
         put("haptics", s.hapticFeedbackEnabled)
         put("reducedMotion", s.reducedMotionEnabled)
+        put("useDeviceLocation", s.useDeviceLocation)
         put("favorites", JSONArray(s.favoriteComponentKeys))
         put("folders", JSONArray(encodeFoldersJson(s.folders)))
         put("hidden", JSONArray(s.hiddenComponentKeys.toList()))
@@ -749,6 +758,7 @@ class SettingsRepository(private val context: Context) {
           leftHandedScrubber = obj.optBoolean("leftHandedScrubber", false),
           lockHiddenApps = obj.optBoolean("lockHiddenApps", false),
           quickScratchpadText = obj.optString("quickScratchpad", ""),
+          useDeviceLocation = obj.optBoolean("useDeviceLocation", true),
           weatherLocation = location,
           hasCompletedOnboarding = true,
         )

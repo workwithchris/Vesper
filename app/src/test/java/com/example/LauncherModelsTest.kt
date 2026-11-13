@@ -769,21 +769,43 @@ class LauncherModelsTest {
   }
 
   @Test
-  fun `SettingsRepository backup roundtrips system adaptive icon shape and individual shape flag`() {
+  fun `SettingsRepository backup roundtrips system adaptive icon shape, individual shape flag, and device location flag`() {
     val defaults = LauncherSettings()
     assertEquals(AdaptiveIconShape.SYSTEM, defaults.iconShape)
     assertTrue(defaults.respectIndividualIconShapes)
+    assertTrue(defaults.useDeviceLocation)
 
     val custom =
       LauncherSettings(
         iconShape = AdaptiveIconShape.SYSTEM,
         respectIndividualIconShapes = false,
+        useDeviceLocation = false,
       )
     val json = com.example.data.SettingsRepository.encodeSettingsBackupJson(custom)
     val restored = com.example.data.SettingsRepository.decodeSettingsBackupJson(json)
     assertNotNull(restored)
     assertEquals(AdaptiveIconShape.SYSTEM, restored?.iconShape)
     assertFalse(restored?.respectIndividualIconShapes ?: true)
+    assertFalse(restored?.useDeviceLocation ?: true)
+  }
+
+  @Test
+  fun `WeatherRepository parseReverseGeocodeJson resolves city and region from device coordinates`() {
+    val payload =
+      """
+      {
+        "city": "Bengaluru",
+        "locality": "Koramangala",
+        "principalSubdivision": "Karnataka",
+        "countryName": "India"
+      }
+      """.trimIndent()
+    val parsed = com.example.data.WeatherRepository.parseReverseGeocodeJson(payload, 12.9716, 77.5946)
+    assertNotNull(parsed)
+    assertEquals("Bengaluru", parsed?.name)
+    assertEquals("Karnataka, India", parsed?.region)
+    assertEquals(12.9716, parsed?.latitude ?: 0.0, 0.0001)
+    assertEquals(77.5946, parsed?.longitude ?: 0.0, 0.0001)
   }
 }
 

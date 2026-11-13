@@ -105,6 +105,7 @@ fun HeroFocusTimerBar(
   onStopTimer: () -> Unit,
   onToggleFocusMode: () -> Unit,
   modifier: Modifier = Modifier,
+  tagPrefix: String = "hero",
 ) {
   var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
   val isTimerRunning = focusTimerEndMillis > nowMillis
@@ -133,7 +134,7 @@ fun HeroFocusTimerBar(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
-        modifier = Modifier.testTag("hero_focus_timer_running"),
+        modifier = Modifier.testTag("${tagPrefix}_focus_timer_running"),
       ) {
         Row(
           modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -176,7 +177,7 @@ fun HeroFocusTimerBar(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        modifier = Modifier.testTag("hero_focus_timer_start"),
+        modifier = Modifier.testTag("${tagPrefix}_focus_timer_start"),
       ) {
         Row(
           modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -206,7 +207,7 @@ fun HeroFocusTimerBar(
           shape = RoundedCornerShape(8.dp),
           color = MaterialTheme.colorScheme.surface,
           border = BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
-          modifier = Modifier.testTag("hero_focus_active_chip"),
+          modifier = Modifier.testTag("${tagPrefix}_focus_active_chip"),
         ) {
           Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),

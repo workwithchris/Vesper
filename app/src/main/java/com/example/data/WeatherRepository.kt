@@ -1,17 +1,258 @@
 package com.example.data
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Address
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.Looper
+import androidx.core.content.ContextCompat
 import com.example.model.WeatherEffectType
 import com.example.model.WeatherInfo
 import com.example.model.WeatherLocation
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
+import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
-class WeatherRepository {
+sealed interface DeviceLocationResult {
+  data class Success(val location: WeatherLocation) : DeviceLocationResult
+
+  data object PermissionRequired : DeviceLocationResult
+
+  data class Unavailable(val reason: String) : DeviceLocationResult
+}
+
+class WeatherRepository(private val context: Context? = null) {
+
+  fun hasLocationPermission(): Boolean {
+    val appContext = context ?: return false
+    val coarseGranted =
+      ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    val fineGranted =
+      ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    return coarseGranted || fineGranted
+  }
+
+  @SuppressLint("MissingPermission")
+  suspend fun detectDeviceLocation(): DeviceLocationResult =
+    withContext(Dispatchers.IO) {
+      val appContext =
+        context ?: return@withContext DeviceLocationResult.Unavailable("Location context unavailable")
+      if (!hasLocationPermission()) {
+        return@withContext DeviceLocationResult.PermissionRequired
+      }
+
+      val locationManager =
+        appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+          ?: return@withContext DeviceLocationResult.Unavailable("Location service unavailable")
+
+      val cachedBest = findBestLastKnownLocation(locationManager)
+      val thirtyMinutesMs = 30L * 60L * 1000L
+      val isCachedFresh =
+        cachedBest != null && (System.currentTimeMillis() - cachedBest.time) <= thirtyMinutesMs
+
+      val resolvedCoords =
+        if (isCachedFresh) {
+          cachedBest
+        } else {
+          requestCurrentCoordinates(locationManager) ?: cachedBest
+        }
+          ?: return@withContext DeviceLocationResult.Unavailable(
+            "Turn on device location services to detect your city"
+          )
+
+      val resolvedLocation =
+        reverseGeocodeLocation(
+          context = appContext,
+          latitude = resolvedCoords.latitude,
+          longitude = resolvedCoords.longitude,
+        )
+      DeviceLocationResult.Success(resolvedLocation)
+    }
+
+  @SuppressLint("MissingPermission")
+  private fun findBestLastKnownLocation(locationManager: LocationManager): Location? {
+    val candidateProviders =
+      buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          add(LocationManager.FUSED_PROVIDER)
+        }
+        add(LocationManager.NETWORK_PROVIDER)
+        add(LocationManager.GPS_PROVIDER)
+        add(LocationManager.PASSIVE_PROVIDER)
+      }
+    var best: Location? = null
+    for (provider in candidateProviders) {
+      val loc = runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() ?: continue
+      if (best == null || loc.time > best.time) {
+        best = loc
+      }
+    }
+    return best
+  }
+
+  @SuppressLint("MissingPermission")
+  private suspend fun requestCurrentCoordinates(locationManager: LocationManager): Location? {
+    val activeProviders =
+      buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+          runCatching { locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER) }.getOrDefault(false)
+        ) {
+          add(LocationManager.FUSED_PROVIDER)
+        }
+        if (runCatching { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) }.getOrDefault(false)) {
+          add(LocationManager.NETWORK_PROVIDER)
+        }
+        if (runCatching { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) }.getOrDefault(false)) {
+          add(LocationManager.GPS_PROVIDER)
+        }
+      }
+    if (activeProviders.isEmpty()) return null
+
+    val provider = activeProviders.first()
+    return withTimeoutOrNull(6_000L) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        withContext(Dispatchers.Main) {
+          suspendCancellableCoroutine { cont ->
+            val signal = CancellationSignal()
+            cont.invokeOnCancellation { signal.cancel() }
+            runCatching {
+              locationManager.getCurrentLocation(
+                provider,
+                signal,
+                ContextCompat.getMainExecutor(context!!),
+              ) { loc ->
+                if (cont.isActive) cont.resume(loc)
+              }
+            }.onFailure {
+              if (cont.isActive) cont.resume(null)
+            }
+          }
+        }
+      } else {
+        withContext(Dispatchers.Main) {
+          suspendCancellableCoroutine { cont ->
+            val listener =
+              object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                  runCatching { locationManager.removeUpdates(this) }
+                  if (cont.isActive) cont.resume(location)
+                }
+
+                @Deprecated("Deprecated in API 29")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+
+                override fun onProviderEnabled(provider: String) {}
+
+                override fun onProviderDisabled(provider: String) {}
+              }
+            cont.invokeOnCancellation { runCatching { locationManager.removeUpdates(listener) } }
+            @Suppress("DEPRECATION")
+            runCatching {
+              locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+            }.onFailure {
+              if (cont.isActive) cont.resume(null)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private suspend fun reverseGeocodeLocation(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+  ): WeatherLocation {
+    val androidAddress = lookupAndroidGeocoderAddress(context, latitude, longitude)
+    if (androidAddress != null) {
+      val city =
+        androidAddress.locality?.trim()?.takeIf { it.isNotEmpty() }
+          ?: androidAddress.subAdminArea?.trim()?.takeIf { it.isNotEmpty() }
+          ?: androidAddress.adminArea?.trim()?.takeIf { it.isNotEmpty() }
+      if (city != null) {
+        val region =
+          listOfNotNull(
+            androidAddress.adminArea?.trim()?.takeIf { it.isNotEmpty() && !it.equals(city, ignoreCase = true) },
+            androidAddress.countryName?.trim()?.takeIf { it.isNotEmpty() },
+          )
+            .joinToString(", ")
+        return WeatherLocation(
+          name = city,
+          region = region,
+          latitude = latitude,
+          longitude = longitude,
+        )
+      }
+    }
+
+    val remoteUrl =
+      "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=$latitude&longitude=$longitude&localityLanguage=en"
+    val remoteJson = fetchJsonLimited(remoteUrl)
+    if (remoteJson != null) {
+      parseReverseGeocodeJson(remoteJson, latitude, longitude)?.let { return it }
+    }
+
+    return WeatherLocation(
+      name = "Current Location",
+      region = String.format(Locale.US, "%.2f°, %.2f°", latitude, longitude),
+      latitude = latitude,
+      longitude = longitude,
+    )
+  }
+
+  private suspend fun lookupAndroidGeocoderAddress(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+  ): Address? {
+    if (!Geocoder.isPresent()) return null
+    val geocoder = Geocoder(context, Locale.getDefault())
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      withTimeoutOrNull(4_000L) {
+        suspendCancellableCoroutine { cont ->
+          runCatching {
+            geocoder.getFromLocation(
+              latitude,
+              longitude,
+              1,
+              object : Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<Address>) {
+                  if (cont.isActive) cont.resume(addresses.firstOrNull())
+                }
+
+                override fun onError(errorMessage: String?) {
+                  if (cont.isActive) cont.resume(null)
+                }
+              },
+            )
+          }.onFailure {
+            if (cont.isActive) cont.resume(null)
+          }
+        }
+      }
+    } else {
+      @Suppress("DEPRECATION")
+      runCatching { geocoder.getFromLocation(latitude, longitude, 1)?.firstOrNull() }.getOrNull()
+    }
+  }
 
   suspend fun fetchWeather(location: WeatherLocation): WeatherInfo? =
     withContext(Dispatchers.IO) {
@@ -75,6 +316,40 @@ class WeatherRepository {
         WeatherLocation("Tokyo", "Japan", 35.6762, 139.6503),
         WeatherLocation("Sydney", "Australia", -33.8688, 151.2093),
       )
+
+    fun parseReverseGeocodeJson(
+      jsonString: String,
+      latitude: Double,
+      longitude: Double,
+    ): WeatherLocation? {
+      return try {
+        val root = JSONObject(jsonString)
+        val city =
+          listOf(
+            root.optString("city", "").trim(),
+            root.optString("locality", "").trim(),
+            root.optString("principalSubdivision", "").trim(),
+          )
+            .firstOrNull { it.isNotEmpty() }
+            ?: return null
+        val subdivision = root.optString("principalSubdivision", "").trim()
+        val country = root.optString("countryName", "").trim()
+        val region =
+          listOfNotNull(
+            subdivision.takeIf { it.isNotEmpty() && !it.equals(city, ignoreCase = true) },
+            country.takeIf { it.isNotEmpty() },
+          )
+            .joinToString(", ")
+        WeatherLocation(
+          name = city,
+          region = region,
+          latitude = latitude,
+          longitude = longitude,
+        )
+      } catch (_: Exception) {
+        null
+      }
+    }
 
     fun parseOpenMeteoJson(jsonString: String, locationName: String = "Miami"): WeatherInfo? {
       return try {

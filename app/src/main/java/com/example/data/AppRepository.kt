@@ -911,24 +911,24 @@ class AppRepository(private val context: Context) {
           return ((pixels[py * sampleSize + px] ushr 24) and 0xFF) > 48
         }
 
-        val extremeCornersOpaque =
-          listOf(
-            isOpaqueAt(0.05f, 0.05f),
-            isOpaqueAt(0.95f, 0.05f),
-            isOpaqueAt(0.05f, 0.95f),
-            isOpaqueAt(0.95f, 0.95f),
-          ).count { it }
-
-        if (extremeCornersOpaque >= 3) {
-          return AppIconShapeProfile.ROUNDED_RECT
-        }
-
         val cardinalsOpaque =
           listOf(
             isOpaqueAt(0.50f, 0.06f),
             isOpaqueAt(0.94f, 0.50f),
             isOpaqueAt(0.50f, 0.94f),
             isOpaqueAt(0.06f, 0.50f),
+          ).count { it }
+
+        if (cardinalsOpaque < 4) {
+          return AppIconShapeProfile.CUSTOM_SILHOUETTE
+        }
+
+        val extremeCornersOpaque =
+          listOf(
+            isOpaqueAt(0.05f, 0.05f),
+            isOpaqueAt(0.95f, 0.05f),
+            isOpaqueAt(0.05f, 0.95f),
+            isOpaqueAt(0.95f, 0.95f),
           ).count { it }
 
         // Circle perimeter at 45° is at center ± 0.3535 (so 0.146 and 0.854).
@@ -950,9 +950,8 @@ class AppRepository(private val context: Context) {
           ).count { it }
 
         return when {
-          cardinalsOpaque == 4 && outerDiagOpaque == 0 && innerCircleDiagOpaque >= 3 ->
-            AppIconShapeProfile.CIRCULAR
-          cardinalsOpaque == 4 && outerDiagOpaque >= 3 -> AppIconShapeProfile.ROUNDED_RECT
+          extremeCornersOpaque >= 3 || outerDiagOpaque >= 3 -> AppIconShapeProfile.ROUNDED_RECT
+          outerDiagOpaque == 0 && innerCircleDiagOpaque >= 3 -> AppIconShapeProfile.CIRCULAR
           else -> AppIconShapeProfile.CUSTOM_SILHOUETTE
         }
       } finally {

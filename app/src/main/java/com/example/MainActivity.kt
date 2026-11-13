@@ -13,6 +13,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,10 +38,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.HomeGestureAction
 import com.example.model.LauncherDestination
 import com.example.ui.components.MindfulLaunchDialog
-import com.example.ui.components.OnboardingWelcomeDialog
 import com.example.ui.drawer.AppDrawer
 import com.example.ui.home.CoastalGradientOverlay
 import com.example.ui.home.HomeScreen
+import com.example.ui.onboarding.OnboardingWelcomeScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.LocalLauncherIsDark
 import com.example.ui.theme.NeonSunsetTheme
@@ -238,6 +241,7 @@ private fun LauncherAppRoot(
             onSaveQuickScratchpad = viewModel::setQuickScratchpadText,
             isDrawerOpen = destination == LauncherDestination.ALL_APPS,
             homeIntentTrigger = homeIntentTrigger,
+            onUseDeviceLocation = viewModel::detectAndUseDeviceLocation,
           )
 
           AppDrawer(
@@ -373,15 +377,21 @@ private fun LauncherAppRoot(
             onUsePhoneSystemWallpaper = viewModel::usePhoneSystemWallpaper,
             onOpenSystemWallpaperPicker = viewModel::openSystemWallpaperPicker,
             onToggleRespectIndividualShapes = viewModel::setRespectIndividualIconShapes,
+            onToggleUseDeviceLocation = viewModel::setUseDeviceLocation,
+            onUseDeviceLocation = viewModel::detectAndUseDeviceLocation,
           )
         }
       }
 
-      if (destination == LauncherDestination.HOME &&
-        !uiState.isLoading &&
-        !uiState.settings.hasCompletedOnboarding
+      AnimatedVisibility(
+        visible =
+          destination == LauncherDestination.HOME &&
+            !uiState.isLoading &&
+            !uiState.settings.hasCompletedOnboarding,
+        enter = fadeIn(),
+        exit = fadeOut(),
       ) {
-        OnboardingWelcomeDialog(
+        OnboardingWelcomeScreen(
           allApps = uiState.allVisibleApps,
           initialAccent = uiState.settings.accent,
           initialShape = uiState.settings.iconShape,
@@ -390,6 +400,18 @@ private fun LauncherAppRoot(
           onSelectShape = viewModel::setIconShape,
           onFinish = { selected -> viewModel.completeOnboarding(selected) },
           onSkip = { viewModel.completeOnboarding(null) },
+          initialClockStyle = uiState.settings.clockStyle,
+          initialRespectIndividualShapes = uiState.settings.respectIndividualIconShapes,
+          initialUseSystemWallpaper = uiState.settings.useSystemWallpaper,
+          isDefaultLauncher = uiState.isDefaultHomeLauncher,
+          reducedMotion = uiState.settings.reducedMotionEnabled,
+          onSelectClockStyle = viewModel::setClockStyle,
+          onToggleRespectIndividualShapes = viewModel::setRespectIndividualIconShapes,
+          onUsePhoneSystemWallpaper = viewModel::usePhoneSystemWallpaper,
+          onApplyMiamiSunsetWallpaper = { viewModel.applyMiamiSunsetWallpaper() },
+          onCreateDefaultHomeRoleIntent = viewModel::createDefaultHomeRoleIntent,
+          onOpenHomeLauncherSettings = viewModel::openHomeLauncherSettings,
+          onDefaultLauncherResult = viewModel::onLauncherResumed,
         )
       }
 

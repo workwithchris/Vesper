@@ -217,6 +217,7 @@ data class LauncherSettings(
   val showDailyLaunchCounts: Boolean = false,
   val calendarPreviewEnabled: Boolean = false,
   val reducedMotionEnabled: Boolean = false,
+  val useDeviceLocation: Boolean = true,
   val weatherLocation: WeatherLocation = WeatherLocation.MIAMI_DEFAULT,
   val swipeLeftAction: HomeGestureAction = HomeGestureAction.OPEN_CAMERA,
   val swipeRightAction: HomeGestureAction = HomeGestureAction.TOGGLE_FOCUS_MODE,
@@ -311,6 +312,8 @@ data class LauncherUiState(
   val frequentDrawerApps: List<AppInfo> = emptyList(),
   val activeTimeOfDayBucket: TimeOfDayBucket = TimeOfDayBucket.MORNING,
   val appShortcutsByPackage: Map<String, List<AppShortcutItem>> = emptyMap(),
+  val isDetectingLocation: Boolean = false,
+  val locationStatusMessage: String? = null,
 )
 
 enum class LauncherDestination {

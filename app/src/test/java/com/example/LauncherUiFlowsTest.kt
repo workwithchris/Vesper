@@ -13,12 +13,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -42,12 +44,12 @@ import com.example.model.ResolvedFolder
 import com.example.ui.components.BackupRestoreDialog
 import com.example.ui.components.FolderEditorDialog
 import com.example.ui.components.MindfulLaunchDialog
-import com.example.ui.components.OnboardingWelcomeDialog
 import com.example.ui.drawer.AppDrawer
 import com.example.ui.home.CoastalGradientOverlay
 import com.example.ui.home.GyroscopeParallaxState
 import com.example.ui.home.HomeScreen
 import com.example.ui.home.SynthwaveClockWidget
+import com.example.ui.onboarding.OnboardingWelcomeScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.NeonSunsetTheme
 import com.example.util.FocusAndSearchUtils
@@ -286,35 +288,76 @@ class LauncherUiFlowsTest {
   }
 
   @Test
-  fun `onboarding welcome dialog steps through customization and saves starter favorites`() {
+  fun `onboarding welcome screen steps through atmosphere customization, favorites curation, and default home step`() {
     var finishedFavorites: List<AppInfo>? = null
     var chosenAccent by mutableStateOf(AccentOption.EMERALD)
+    var chosenShape by mutableStateOf(AdaptiveIconShape.SYSTEM)
+    var useSystemWallpaper by mutableStateOf(true)
+    var respectShapes by mutableStateOf(true)
 
     composeTestRule.setContent {
-      NeonSunsetTheme(accentOption = chosenAccent) {
-        OnboardingWelcomeDialog(
+      NeonSunsetTheme(
+        accentOption = chosenAccent,
+        iconShape = chosenShape,
+        respectIndividualIconShapes = respectShapes,
+      ) {
+        OnboardingWelcomeScreen(
           allApps = listOf(sampleCalendar, sampleNotes, sampleMusic),
           initialAccent = chosenAccent,
-          initialShape = AdaptiveIconShape.ROUNDED_SQUARE,
+          initialShape = chosenShape,
           initialFavorites = listOf(sampleCalendar, sampleNotes),
           onSelectAccent = { chosenAccent = it },
-          onSelectShape = {},
+          onSelectShape = { chosenShape = it },
           onFinish = { finishedFavorites = it },
           onSkip = {},
+          initialRespectIndividualShapes = respectShapes,
+          initialUseSystemWallpaper = useSystemWallpaper,
+          reducedMotion = true,
+          onToggleRespectIndividualShapes = { respectShapes = it },
+          onUsePhoneSystemWallpaper = { useSystemWallpaper = true },
+          onApplyMiamiSunsetWallpaper = { useSystemWallpaper = false },
         )
       }
     }
 
     composeTestRule.waitForIdle()
+    // Step 0: Atmospheric Welcome
+    composeTestRule.onNodeWithTag("onboarding_dialog").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("onboarding_next_button").performClick()
+    composeTestRule.waitForIdle()
+
+    // Step 1: Atmosphere & Live Preview Studio
+    composeTestRule.onNodeWithTag("onboarding_live_preview").assertIsDisplayed()
     composeTestRule.onNodeWithTag("onboarding_accent_purple").performClick()
+    composeTestRule.waitForIdle()
     assertEquals(AccentOption.PURPLE, chosenAccent)
+
+    composeTestRule.onNodeWithTag("onboarding_wallpaper_sunset").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(false, useSystemWallpaper)
+
+    composeTestRule.onNodeWithTag("onboarding_respect_shapes_switch").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(false, respectShapes)
 
     composeTestRule.onNodeWithTag("onboarding_next_button").performClick()
     composeTestRule.waitForIdle()
+
+    // Step 2: Favorites Curation (add Music alongside Calendar & Notes)
+    composeTestRule
+      .onNodeWithTag("onboarding_favorites_list")
+      .performScrollToNode(hasTestTag("onboarding_app_pick_com.music"))
+    composeTestRule.onNodeWithTag("onboarding_app_pick_com.music").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("onboarding_next_button").performClick()
+    composeTestRule.waitForIdle()
+
+    // Step 3: Default Home & Gestures Launchpad
+    composeTestRule.onNodeWithTag("onboarding_default_home_card").assertIsDisplayed()
     composeTestRule.onNodeWithTag("onboarding_finish_button").performClick()
     composeTestRule.waitForIdle()
 
-    assertEquals(listOf(sampleCalendar, sampleNotes), finishedFavorites)
+    assertEquals(listOf(sampleCalendar, sampleNotes, sampleMusic), finishedFavorites)
   }
 
   @Test
@@ -1143,14 +1186,22 @@ class LauncherUiFlowsTest {
     composeTestRule.onNodeWithTag("home_page_1").assertIsDisplayed()
     composeTestRule.onNodeWithTag("page1_intention_card").assertIsDisplayed()
     composeTestRule.onNodeWithText("Deep focus morning").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("page1_scratchpad_card").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_focus_session_card").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_focus_timer_start").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_scratchpad_card").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page1_mindful_insights_card").performScrollTo().assertIsDisplayed()
 
-    // Navigate to Page 2 (Atmos & Spaces) via swipeLeft and verify Auto-group button
+    // Navigate to Page 2 (Atmos & Spaces) via swipeLeft and verify redesigned weather & spaces cards
     composeTestRule.onNodeWithTag("home_horizontal_pager").performTouchInput { swipeLeft() }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("home_page_2").assertIsDisplayed()
     composeTestRule.onNodeWithTag("page2_weather_card").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("page2_auto_group_button").performClick()
+    composeTestRule.onNodeWithText("FEELS").assertIsDisplayed()
+    composeTestRule.onNodeWithText("WIND").assertIsDisplayed()
+    composeTestRule.onNodeWithText("CLOUD").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page2_spaces_card").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page2_open_drawer_button").performScrollTo().assertIsDisplayed()
+    composeTestRule.onNodeWithTag("page2_auto_group_button").performScrollTo().performClick()
     composeTestRule.waitForIdle()
     assertTrue(autoGrouped)
   }
@@ -1279,6 +1330,88 @@ class LauncherUiFlowsTest {
     composeTestRule.onNodeWithTag("respect_individual_shapes_switch").performScrollTo().performClick()
     composeTestRule.waitForIdle()
     assertEquals(false, respectIndividual)
+  }
+
+  @Test
+  fun `settings screen shows device location toggle and picker triggers device location detection`() {
+    val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+    Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+
+    var useDeviceLocation by mutableStateOf(false)
+    var deviceLocationTriggered = 0
+
+    composeTestRule.setContent {
+      val state =
+        LauncherUiState(
+          isLoading = false,
+          allApps = listOf(sampleCalendar, sampleNotes),
+          allVisibleApps = listOf(sampleCalendar, sampleNotes),
+          settings =
+            LauncherSettings(
+              hasCompletedOnboarding = true,
+              useDeviceLocation = useDeviceLocation,
+              weatherLocation = com.example.model.WeatherLocation("Tokyo", "Japan", 35.6762, 139.6503),
+            ),
+        )
+      NeonSunsetTheme {
+        SettingsScreen(
+          uiState = state,
+          onBack = {},
+          onSelectThemeMode = {},
+          onSelectAccent = {},
+          onSelectIconShape = {},
+          onToggleCoastalBackdrop = {},
+          onSearchWeatherCities = { emptyList() },
+          onSelectWeatherLocation = {},
+          onSaveFavorites = {},
+          onSaveFolder = { _, _, _ -> },
+          onDeleteFolder = {},
+          onUnhideApp = {},
+          onToggleAlphabetIndex = {},
+          onToggleHideLabels = {},
+          onSelectSwipeLeftAction = {},
+          onSelectSwipeRightAction = {},
+          onSelectDoubleTapAction = {},
+          onToggleFocusModeManual = {},
+          onSaveFocusSchedule = { _, _, _ -> },
+          onSaveFocusEssentials = {},
+          onSelectFocusTimerDuration = {},
+          onToggleMindfulPause = {},
+          onSaveMindfulApps = {},
+          onToggleDailyLaunchCounts = {},
+          onToggleCalendarPreview = {},
+          onSelectScrollSpeed = {},
+          onToggleHapticFeedback = {},
+          onToggleReducedMotion = {},
+          onCreateDefaultHomeRoleIntent = { null },
+          onOpenHomeLauncherSettings = {},
+          onDefaultLauncherResult = {},
+          onReplayWelcomeSetup = {},
+          onResetLayout = {},
+          onToggleUseDeviceLocation = {
+            useDeviceLocation = it
+            if (it) deviceLocationTriggered++
+          },
+          onUseDeviceLocation = {
+            useDeviceLocation = true
+            deviceLocationTriggered++
+          },
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("settings_device_location_switch").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    assertTrue(useDeviceLocation)
+    assertEquals(1, deviceLocationTriggered)
+
+    composeTestRule.onNodeWithTag("settings_weather_location_row").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("weather_city_dialog").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("weather_use_device_location_button").performClick()
+    composeTestRule.waitForIdle()
+    assertEquals(2, deviceLocationTriggered)
   }
 }
 
