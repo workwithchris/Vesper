@@ -4,7 +4,7 @@ Thank you for contributing to Vesper!
 
 ## Development Setup
 
-1. Ensure **JDK 17**, **Android SDK 36**, and **Gradle 9.3.1** are installed (or open the project directly in Android Studio).
+1. Ensure **JDK 21**, **Android SDK 36**, and **Gradle 9.3.1** are installed (or open the project directly in Android Studio).
 2. Copy `.env.example` only if testing optional custom environment keys; Vesper requires **no API keys** out of the box.
 3. Run tests before opening a pull request:
    ```bash

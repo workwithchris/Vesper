@@ -73,7 +73,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full package breakdown 
 ## Local Development, Versioning & Testing
 
 ### Prerequisites
-- **JDK 17**
+- **JDK 21**
 - **Android SDK** (`compileSdk 36`, `minSdk 26`, `targetSdk 36`)
 - **Gradle 9.3.1** (or Android Studio / IntelliJ IDEA)
 
