@@ -843,6 +843,7 @@ class LauncherUiFlowsTest {
     var uninstalledPkg: String? = null
     var storeOpenedPkg: String? = null
     var queryState by mutableStateOf("")
+    var isDrawerOpen by mutableStateOf(true)
 
     composeTestRule.setContent {
       val trimmed = queryState.trim()
@@ -876,7 +877,7 @@ class LauncherUiFlowsTest {
         Box {
           HomeScreen(
             uiState = uiState,
-            onOpenDrawer = { _, _ -> },
+            onOpenDrawer = { _, _ -> isDrawerOpen = true },
             onOpenSettings = {},
             onClockClick = {},
             onRefreshWeather = {},
@@ -894,15 +895,19 @@ class LauncherUiFlowsTest {
             onSaveFolder = { _, _, _ -> },
             onDeleteFolder = {},
             onSaveQuickScratchpad = { savedScratchpad = it },
+            isDrawerOpen = isDrawerOpen,
           )
           AppDrawer(
-            isOpen = true,
+            isOpen = isDrawerOpen,
             focusSearchOnOpen = false,
             initialLetter = null,
             uiState = uiState,
-            onClose = {},
+            onClose = { isDrawerOpen = false },
             onSearchQueryChange = { queryState = it },
-            onLaunchApp = { autoLaunchedPkg = it.packageName },
+            onLaunchApp = {
+              autoLaunchedPkg = it.packageName
+              isDrawerOpen = false
+            },
             onLaunchShortcut = {},
             onDialNumber = {},
             onOpenUrl = {},
@@ -938,7 +943,7 @@ class LauncherUiFlowsTest {
     composeTestRule.waitForIdle()
     assertEquals("com.notes", uninstalledPkg)
 
-    // Typing "Cal" narrows to a single match and auto-launches Calendar immediately
+    // Typing "Cal" narrows to a single match, auto-launches Calendar immediately, and closes drawer
     queryState = "Cal"
     composeTestRule.waitForIdle()
     assertEquals("com.cal", autoLaunchedPkg)
