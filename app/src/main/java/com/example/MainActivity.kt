@@ -259,7 +259,6 @@ private fun LauncherAppRoot(
             onSaveFocusSchedule = viewModel::setFocusSchedule,
             onSaveFocusEssentials = viewModel::setFocusEssentialApps,
             onSelectFocusTimerDuration = viewModel::setFocusTimerDuration,
-            onToggleNotificationDots = viewModel::setNotificationDotsEnabled,
             onToggleMindfulPause = viewModel::setMindfulPauseEnabled,
             onSaveMindfulApps = viewModel::setMindfulPausedApps,
             onToggleDailyLaunchCounts = viewModel::setShowDailyLaunchCounts,

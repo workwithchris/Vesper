@@ -166,7 +166,6 @@ fun AppListRow(
   modifier: Modifier = Modifier,
   iconSize: Dp = 42.dp,
   showDivider: Boolean = true,
-  showNotificationDot: Boolean = false,
   showDailyLaunchCount: Boolean = false,
   adaptiveShape: AdaptiveIconShape = LocalAdaptiveIconShape.current,
   menuContent: @Composable (dismiss: () -> Unit) -> Unit,
@@ -238,30 +237,17 @@ fun AppListRow(
             .testTag("app_row_${app.packageName}"),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Box(contentAlignment = Alignment.TopEnd) {
-          FramedAppIcon(
-            app = app,
-            frameSize = iconSize,
-            adaptiveShape = adaptiveShape,
-            modifier =
-              Modifier.graphicsLayer {
-                val combinedScale = pressScale.value * tapBounceScale.value
-                scaleX = combinedScale
-                scaleY = combinedScale
-              },
-          )
-          if (!showLabel && showNotificationDot && app.unreadCount > 0) {
-            Box(
-              modifier =
-                Modifier
-                  .size(10.dp)
-                  .clip(CircleShape)
-                  .background(MaterialTheme.colorScheme.primary)
-                  .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape)
-                  .testTag("notification_dot_${app.packageName}"),
-            )
-          }
-        }
+        FramedAppIcon(
+          app = app,
+          frameSize = iconSize,
+          adaptiveShape = adaptiveShape,
+          modifier =
+            Modifier.graphicsLayer {
+              val combinedScale = pressScale.value * tapBounceScale.value
+              scaleX = combinedScale
+              scaleY = combinedScale
+            },
+        )
 
         if (showLabel) {
           Spacer(modifier = Modifier.width(16.dp))
@@ -286,27 +272,6 @@ fun AppListRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp).testTag("launch_count_${app.packageName}"),
-              )
-            }
-          }
-
-          if (showNotificationDot && app.unreadCount > 0) {
-            Spacer(modifier = Modifier.width(10.dp))
-            Box(
-              modifier =
-                Modifier
-                  .size(14.dp)
-                  .clip(CircleShape)
-                  .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f))
-                  .testTag("notification_dot_${app.packageName}"),
-              contentAlignment = Alignment.Center,
-            ) {
-              Box(
-                modifier =
-                  Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
               )
             }
           }

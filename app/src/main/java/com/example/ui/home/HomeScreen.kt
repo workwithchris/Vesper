@@ -513,7 +513,6 @@ fun HomeScreen(
                       expanded = folderId in expandedFolderIds,
                       showLabel = !uiState.settings.hideAppLabels,
                       hapticEnabled = hapticsEnabled,
-                      showNotificationDot = uiState.settings.notificationDotsEnabled,
                       showDailyLaunchCount = uiState.settings.showDailyLaunchCounts,
                       onToggleExpand = {
                         expandedFolderIds =
@@ -538,7 +537,6 @@ fun HomeScreen(
                       app = app,
                       showLabel = !uiState.settings.hideAppLabels,
                       hapticEnabled = hapticsEnabled,
-                      showNotificationDot = uiState.settings.notificationDotsEnabled,
                       showDailyLaunchCount = uiState.settings.showDailyLaunchCounts,
                       onTap = { onLaunchApp(app) },
                       showDivider = index < uiState.favoriteApps.lastIndex,

@@ -40,7 +40,6 @@ import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Schedule
@@ -90,7 +89,6 @@ import com.example.model.LauncherUiState
 import com.example.model.ScrollSpeed
 import com.example.model.ThemeMode
 import com.example.model.WeatherLocation
-import com.example.notifications.NotificationBadgeStore
 import com.example.ui.components.BackupRestoreDialog
 import com.example.ui.components.FavoriteAppsPickerDialog
 import com.example.ui.components.FocusScheduleDialog
@@ -127,7 +125,6 @@ fun SettingsScreen(
   onSaveFocusSchedule: (Boolean, Int, Int) -> Unit,
   onSaveFocusEssentials: (List<AppInfo>) -> Unit,
   onSelectFocusTimerDuration: (Int) -> Unit,
-  onToggleNotificationDots: (Boolean) -> Unit,
   onToggleMindfulPause: (Boolean) -> Unit,
   onSaveMindfulApps: (List<AppInfo>) -> Unit,
   onToggleDailyLaunchCounts: (Boolean) -> Unit,
@@ -169,7 +166,6 @@ fun SettingsScreen(
   var showFocusTimerDialog by remember { mutableStateOf(false) }
   var showInsightsDialog by remember { mutableStateOf(false) }
   var showMindfulAppsDialog by remember { mutableStateOf(false) }
-  var showNotificationAccessDialog by remember { mutableStateOf(false) }
   var showScrollSpeedDialog by remember { mutableStateOf(false) }
   var showBackupDialog by remember { mutableStateOf(false) }
   var showAboutDialog by remember { mutableStateOf(false) }
@@ -250,7 +246,6 @@ fun SettingsScreen(
           context = context,
           isDefaultHomeLauncher = uiState.isDefaultHomeLauncher,
           onRequestDefaultLauncher = ::triggerDefaultLauncherRequest,
-          onOpenNotificationAccess = { NotificationBadgeStore.openNotificationListenerSettings(context) },
           onRequestCalendarPermission = {
             calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
           },
@@ -463,24 +458,6 @@ fun SettingsScreen(
           value = "${settings.focusTimerDurationMinutes} min",
           onClick = { showFocusTimerDialog = true },
           testTag = "settings_focus_timer_row",
-        )
-
-        SettingsToggleRow(
-          icon = Icons.Outlined.NotificationsNone,
-          title = "Notification dots",
-          checked = settings.notificationDotsEnabled,
-          onCheckedChange = { wantEnable ->
-            if (wantEnable) {
-              onToggleNotificationDots(true)
-              if (!NotificationBadgeStore.isListenerEnabled(context)) {
-                showNotificationAccessDialog = true
-              }
-            } else {
-              onToggleNotificationDots(false)
-            }
-          },
-          accentColor = accentColor,
-          testTag = "notification_dots_switch",
         )
 
         SettingsToggleRow(
@@ -793,36 +770,6 @@ fun SettingsScreen(
         }
       },
       onDismiss = { showBackupDialog = false },
-    )
-  }
-
-  if (showNotificationAccessDialog) {
-    AlertDialog(
-      onDismissRequest = { showNotificationAccessDialog = false },
-      shape = RoundedCornerShape(12.dp),
-      containerColor = MaterialTheme.colorScheme.surface,
-      title = { Text("Enable notification access") },
-      text = {
-        Text(
-          text =
-            "To show minimalist notification dots beside apps with unread alerts, allow Notification Access for ${stringResource(R.string.app_name)} in Android Settings.",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            showNotificationAccessDialog = false
-            NotificationBadgeStore.openNotificationListenerSettings(context)
-          }
-        ) {
-          Text("Open Settings", color = accentColor)
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = { showNotificationAccessDialog = false }) { Text("Later") }
-      },
     )
   }
 

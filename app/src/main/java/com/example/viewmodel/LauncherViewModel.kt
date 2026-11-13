@@ -24,7 +24,6 @@ import com.example.model.ScrollSpeed
 import com.example.model.ThemeMode
 import com.example.model.WeatherInfo
 import com.example.model.WeatherLocation
-import com.example.notifications.NotificationBadgeStore
 import com.example.util.FocusAndSearchUtils
 import com.example.util.MathEvaluator
 import java.util.UUID
@@ -65,7 +64,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
   )
 
   private data class EnvironmentSnapshot(
-    val notifCounts: Map<String, Int>,
     val launchCounts: Map<String, Int>,
     val mindfulTotals: DailyMindfulTotals,
     val weather: WeatherInfo,
@@ -92,13 +90,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   private val environmentFlow =
     combine(
-      NotificationBadgeStore.countsByPackage,
       settingsRepository.dailyLaunchCountsFlow,
       settingsRepository.dailyMindfulTotalsFlow,
       weatherFlow,
       calendarEventFlow,
-    ) { notifCounts, launchCounts, mindfulTotals, weather, nextEvent ->
-      EnvironmentSnapshot(notifCounts, launchCounts, mindfulTotals, weather, nextEvent)
+    ) { launchCounts, mindfulTotals, weather, nextEvent ->
+      EnvironmentSnapshot(launchCounts, mindfulTotals, weather, nextEvent)
     }
 
   private val transientFlow =
@@ -120,8 +117,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         core.rawApps
           .map { app ->
             val customLabel = settings.customAppLabels[app.componentKey]
-            val unread =
-              if (settings.notificationDotsEnabled) env.notifCounts[app.packageName] ?: 0 else 0
             val launches = env.launchCounts[app.componentKey] ?: 0
             val mindful =
               app.componentKey in settings.mindfulPausedComponentKeys ||
@@ -130,7 +125,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                   app.componentKey !in settings.focusEssentialComponentKeys)
             app.copy(
               label = customLabel ?: app.originalLabel,
-              unreadCount = unread,
               dailyLaunchCount = launches,
               isMindfulPaused = mindful,
             )
@@ -573,10 +567,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
   fun setHapticFeedbackEnabled(enabled: Boolean) {
     viewModelScope.launch { settingsRepository.setHapticFeedbackEnabled(enabled) }
-  }
-
-  fun setNotificationDotsEnabled(enabled: Boolean) {
-    viewModelScope.launch { settingsRepository.setNotificationDotsEnabled(enabled) }
   }
 
   fun setMindfulPauseEnabled(enabled: Boolean) {

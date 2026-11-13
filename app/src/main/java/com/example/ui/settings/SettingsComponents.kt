@@ -38,7 +38,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
-import com.example.notifications.NotificationBadgeStore
 import com.example.util.LauncherHapticEvent
 import com.example.util.rememberLauncherHaptics
 
@@ -47,10 +46,8 @@ fun LauncherHealthStatusCard(
   context: Context,
   isDefaultHomeLauncher: Boolean,
   onRequestDefaultLauncher: () -> Unit,
-  onOpenNotificationAccess: () -> Unit,
   onRequestCalendarPermission: () -> Unit,
 ) {
-  val notificationAccessGranted = NotificationBadgeStore.isListenerEnabled(context)
   val calendarGranted =
     ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
       PackageManager.PERMISSION_GRANTED
@@ -72,12 +69,6 @@ fun LauncherHealthStatusCard(
         isActive = isDefaultHomeLauncher,
         actionLabel = if (isDefaultHomeLauncher) "Active" else "Set default",
         onClick = onRequestDefaultLauncher,
-      )
-      StatusCheckRow(
-        title = "Notification Dots Access",
-        isActive = notificationAccessGranted,
-        actionLabel = if (notificationAccessGranted) "Granted" else "Grant",
-        onClick = onOpenNotificationAccess,
       )
       StatusCheckRow(
         title = "Calendar Events Permission",

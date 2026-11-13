@@ -16,9 +16,6 @@ app/src/main/java/com/example/
 │   └── WeatherRepository.kt         # Open-Meteo live forecast & geocoding client (HttpURLConnection)
 ├── model/
 │   └── LauncherModels.kt            # Immutable UI state, AppInfo, AppFolder, AccentOption, WeatherInfo
-├── notifications/
-│   ├── LauncherNotificationListenerService.kt # Unread package counter for minimal notification dots
-│   └── NotificationBadgeStore.kt    # Thread-safe StateFlow map of active badge counts
 ├── ui/
 │   ├── components/
 │   │   ├── FocusComponents.kt       # MindfulLaunchDialog, RenameAppDialog, HiddenAppsDialog, pickers

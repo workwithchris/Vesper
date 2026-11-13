@@ -381,7 +381,6 @@ class LauncherUiFlowsTest {
           onSaveFocusSchedule = { _, _, _ -> },
           onSaveFocusEssentials = {},
           onSelectFocusTimerDuration = {},
-          onToggleNotificationDots = {},
           onToggleMindfulPause = {},
           onSaveMindfulApps = {},
           onToggleDailyLaunchCounts = {},

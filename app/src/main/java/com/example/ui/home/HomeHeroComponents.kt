@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.DropdownMenu
@@ -205,7 +205,6 @@ fun HomeFolderRow(
   expanded: Boolean,
   showLabel: Boolean,
   hapticEnabled: Boolean,
-  showNotificationDot: Boolean,
   showDailyLaunchCount: Boolean,
   onToggleExpand: () -> Unit,
   onLaunchApp: (AppInfo) -> Unit,
@@ -220,7 +219,6 @@ fun HomeFolderRow(
   val iconShape = LocalAdaptiveIconShape.current.toComposeShape()
   val isDark = LocalLauncherIsDark.current
   val iconTint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (isDark) 0.92f else 0.88f)
-  val unreadSum = if (showNotificationDot) resolvedFolder.apps.sumOf { it.unreadCount } else 0
 
   Box(modifier = Modifier.fillMaxWidth()) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -270,16 +268,6 @@ fun HomeFolderRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
           )
-          if (unreadSum > 0) {
-            Box(
-              modifier =
-                Modifier
-                  .size(7.dp)
-                  .clip(RoundedCornerShape(4.dp))
-                  .background(MaterialTheme.colorScheme.primary),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-          }
           Text(
             text = "${resolvedFolder.apps.size}",
             style = GeistMonoNumericStyle,
@@ -289,7 +277,7 @@ fun HomeFolderRow(
           Icon(
             imageVector =
               if (expanded) Icons.Outlined.KeyboardArrowDown
-              else Icons.Outlined.KeyboardArrowRight,
+              else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
             contentDescription = if (expanded) "Collapse folder" else "Expand folder",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
@@ -310,7 +298,6 @@ fun HomeFolderRow(
               app = app,
               showLabel = showLabel,
               hapticEnabled = hapticEnabled,
-              showNotificationDot = showNotificationDot,
               showDailyLaunchCount = showDailyLaunchCount,
               iconSize = 36.dp,
               onTap = { onLaunchApp(app) },

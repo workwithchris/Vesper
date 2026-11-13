@@ -12,7 +12,6 @@ data class AppInfo(
   val icon: ImageBitmap?,
   val isAdaptiveIcon: Boolean = false,
   val originalLabel: String = label,
-  val unreadCount: Int = 0,
   val dailyLaunchCount: Int = 0,
   val isMindfulPaused: Boolean = false,
 ) {
@@ -160,7 +159,6 @@ data class LauncherSettings(
   val folders: List<AppFolder> = emptyList(),
   val hiddenComponentKeys: Set<String> = emptySet(),
   val customAppLabels: Map<String, String> = emptyMap(),
-  val notificationDotsEnabled: Boolean = false,
   val mindfulPauseEnabled: Boolean = true,
   val mindfulPausedComponentKeys: Set<String> = emptySet(),
   val showDailyLaunchCounts: Boolean = false,

@@ -537,7 +537,6 @@ fun AppDrawer(
                       app = app,
                       showLabel = true,
                       hapticEnabled = uiState.settings.hapticFeedbackEnabled,
-                      showNotificationDot = uiState.settings.notificationDotsEnabled,
                       showDailyLaunchCount = uiState.settings.showDailyLaunchCounts,
                       onTap = { onLaunchApp(app) },
                       showDivider = index == section.apps.lastIndex,

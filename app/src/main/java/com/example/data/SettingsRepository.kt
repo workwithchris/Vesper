@@ -51,7 +51,6 @@ class SettingsRepository(private val context: Context) {
     val FOLDERS_JSON = stringPreferencesKey("app_folders_json")
     val HIDDEN_KEYS = stringPreferencesKey("hidden_component_keys")
     val CUSTOM_LABELS_JSON = stringPreferencesKey("custom_app_labels_json")
-    val NOTIFICATION_DOTS = booleanPreferencesKey("notification_dots_enabled")
     val MINDFUL_PAUSE_ENABLED = booleanPreferencesKey("mindful_pause_enabled")
     val MINDFUL_PAUSED_KEYS = stringPreferencesKey("mindful_paused_component_keys")
     val SHOW_DAILY_LAUNCH_COUNTS = booleanPreferencesKey("show_daily_launch_counts")
@@ -112,7 +111,6 @@ class SettingsRepository(private val context: Context) {
         folders = folders,
         hiddenComponentKeys = hiddenKeys,
         customAppLabels = customLabels,
-        notificationDotsEnabled = prefs[Keys.NOTIFICATION_DOTS] ?: false,
         mindfulPauseEnabled = prefs[Keys.MINDFUL_PAUSE_ENABLED] ?: true,
         mindfulPausedComponentKeys = mindfulPausedKeys,
         showDailyLaunchCounts = prefs[Keys.SHOW_DAILY_LAUNCH_COUNTS] ?: false,
@@ -233,10 +231,6 @@ class SettingsRepository(private val context: Context) {
       if (trimmed.isEmpty()) map.remove(componentKey) else map[componentKey] = trimmed
       prefs[Keys.CUSTOM_LABELS_JSON] = encodeStringMap(map)
     }
-  }
-
-  suspend fun setNotificationDotsEnabled(enabled: Boolean) {
-    context.launcherDataStore.edit { it[Keys.NOTIFICATION_DOTS] = enabled }
   }
 
   suspend fun setMindfulPauseEnabled(enabled: Boolean) {

@@ -219,7 +219,6 @@ class LauncherModelsTest {
     val defaults = LauncherSettings()
     assertTrue(defaults.hiddenComponentKeys.isEmpty())
     assertTrue(defaults.customAppLabels.isEmpty())
-    assertFalse(defaults.notificationDotsEnabled)
     assertTrue(defaults.mindfulPauseEnabled)
     assertTrue(defaults.mindfulPausedComponentKeys.isEmpty())
     assertFalse(defaults.showDailyLaunchCounts)

@@ -129,10 +129,10 @@ class ScreenshotGeneratorTest {
     return listOf(
       AppInfo("Calendar", "com.vesper.calendar", "MainActivity", calendarIcon, dailyLaunchCount = 4),
       AppInfo("Camera", "com.vesper.camera", "MainActivity", cameraIcon, dailyLaunchCount = 2),
-      AppInfo("Mail", "com.vesper.mail", "MainActivity", mailIcon, unreadCount = 3, dailyLaunchCount = 7),
+      AppInfo("Mail", "com.vesper.mail", "MainActivity", mailIcon, dailyLaunchCount = 7),
       AppInfo("Music", "com.vesper.music", "MainActivity", musicIcon, dailyLaunchCount = 5),
       AppInfo("Notes", "com.vesper.notes", "MainActivity", notesIcon, dailyLaunchCount = 6),
-      AppInfo("Slack", "com.vesper.slack", "MainActivity", slackIcon, unreadCount = 2, dailyLaunchCount = 9),
+      AppInfo("Slack", "com.vesper.slack", "MainActivity", slackIcon, dailyLaunchCount = 9),
       AppInfo("Terminal", "com.vesper.terminal", "MainActivity", terminalIcon, dailyLaunchCount = 3),
     )
   }
@@ -147,7 +147,6 @@ class ScreenshotGeneratorTest {
         iconShape = AdaptiveIconShape.ROUNDED_SQUARE,
         coastalBackdropEnabled = true,
         alphabetIndexEnabled = true,
-        notificationDotsEnabled = true,
         showDailyLaunchCounts = true,
         calendarPreviewEnabled = true,
         reducedMotionEnabled = true,
@@ -392,7 +391,6 @@ class ScreenshotGeneratorTest {
           onSaveFocusSchedule = { _, _, _ -> },
           onSaveFocusEssentials = {},
           onSelectFocusTimerDuration = {},
-          onToggleNotificationDots = {},
           onToggleMindfulPause = {},
           onSaveMindfulApps = {},
           onToggleDailyLaunchCounts = {},

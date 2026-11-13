@@ -121,12 +121,11 @@ Vesper strictly follows least-privilege Android permissions:
 | Permission / Capability | Usage | Optional? |
 | :--- | :--- | :--- |
 | `INTERNET` | Live Open-Meteo weather forecasts & city search | Offline fallback built in |
-| `QUERY_ALL_PACKAGES` | Standard home launcher app discovery | Required for launcher role |
+| `<queries>` intents | Explicit launcher & default-app discovery without `QUERY_ALL_PACKAGES` | Manifest queries |
 | `EXPAND_STATUS_BAR` | Swipe-down gesture to open system notification shade | Yes |
 | `READ_CALENDAR` | Next upcoming calendar event preview on home screen | Yes (runtime opt-in) |
-| `BIND_NOTIFICATION_LISTENER_SERVICE` | Minimal notification indicator dots on app rows | Yes (user opt-in) |
 
-> **No** `VIBRATE`, **no** `READ_EXTERNAL_STORAGE` / media permissions, **no** location tracking, and **no** analytics SDKs.
+> **No** `BIND_NOTIFICATION_LISTENER_SERVICE`, **no** `QUERY_ALL_PACKAGES`, **no** `VIBRATE`, **no** `READ_EXTERNAL_STORAGE` / media permissions, **no** location tracking, and **no** analytics SDKs.
 
 ---
 
